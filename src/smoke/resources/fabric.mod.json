@@ -13,8 +13,5 @@
     "cloudnine": "*",
     "fabric-api": "*",
     "minecraft": "1.21.11"
-  },
-  "mixins": [
-    "cloudnine-smoke.mixins.json"
-  ]
+  }
 }

@@ -1,7 +1,0 @@
-{
-  "required": true,
-  "package": "dev.cloudnine.smoke.mixin",
-  "compatibilityLevel": "JAVA_21",
-  "client": ["SmokeMouseInvoker"],
-  "injectors": { "defaultRequire": 1 }
-}

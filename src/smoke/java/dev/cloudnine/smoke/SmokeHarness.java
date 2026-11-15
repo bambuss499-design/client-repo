@@ -1,15 +1,12 @@
 package dev.cloudnine.smoke;
 
 import dev.cloudnine.client.CloudNineScreen;
-import dev.cloudnine.smoke.mixin.SmokeMouseInvoker;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
-import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Screenshot;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.input.MouseButtonInfo;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.gui.screens.TitleScreen;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWKeyCallback;
@@ -30,12 +27,6 @@ public final class SmokeHarness implements ClientModInitializer {
         if (phase.isBlank()) return;
         Path game = FabricLoader.getInstance().getGameDir();
         Path output = game.resolve("cloudnine/smoke");
-        ScreenEvents.BEFORE_INIT.register((client, screen, width, height) -> {
-            if (screen instanceof CloudNineScreen) {
-                ScreenMouseEvents.beforeMouseClick(screen).register((ignored, click) ->
-                    System.out.println("CLOUDNINE_SMOKE: mouse event x=" + click.x() + " y=" + click.y() + " button=" + click.button()));
-            }
-        });
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
                 Files.createDirectories(output);
@@ -63,7 +54,7 @@ public final class SmokeHarness implements ClientModInitializer {
                     screenTicks++;
                     double scale = client.getWindow().getGuiScale();
                     if (screenTicks == 10) {
-                        click(client, screen.firstRowCenterX() * scale, screen.firstRowCenterY() * scale);
+                        click(screen, screen.firstRowCenterX(), screen.firstRowCenterY());
                         System.out.println("CLOUDNINE_SMOKE: requested row click at " + screen.firstRowCenterX() + "," + screen.firstRowCenterY() + " scale=" + scale);
                     }
                     if (screenTicks == 15) {
@@ -76,7 +67,7 @@ public final class SmokeHarness implements ClientModInitializer {
                         if (selected == null) throw new IllegalStateException("Fixture row click did not select an entry");
                     }
                     if (screenTicks == 45) {
-                        click(client, screen.stageButtonCenterX() * scale, screen.stageButtonCenterY() * scale);
+                        click(screen, screen.stageButtonCenterX(), screen.stageButtonCenterY());
                         System.out.println("CLOUDNINE_SMOKE: requested stage click at " + screen.stageButtonCenterX() + "," + screen.stageButtonCenterY());
                     }
                     if (screenTicks == 75) {
@@ -114,12 +105,9 @@ public final class SmokeHarness implements ClientModInitializer {
         callback.invoke(window, GLFW.GLFW_KEY_RIGHT_ALT, 0, GLFW.GLFW_RELEASE, 0);
     }
 
-    private static void click(Minecraft client, double x, double y) {
-        long window = client.getWindow().handle();
-        SmokeMouseInvoker input = (SmokeMouseInvoker) (Object) client.mouseHandler;
-        input.cloudnineMove(window, x, y);
-        MouseButtonInfo left = new MouseButtonInfo(GLFW.GLFW_MOUSE_BUTTON_LEFT, 0);
-        input.cloudnineButton(window, left, GLFW.GLFW_PRESS);
-        input.cloudnineButton(window, left, GLFW.GLFW_RELEASE);
+    private static void click(CloudNineScreen screen, double x, double y) {
+        MouseButtonEvent event = new MouseButtonEvent(x, y, new MouseButtonInfo(GLFW.GLFW_MOUSE_BUTTON_LEFT, 0));
+        if (!screen.mouseClicked(event, false)) throw new IllegalStateException("Screen did not consume the click");
+        screen.mouseReleased(event);
     }
 }
