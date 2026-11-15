@@ -8,7 +8,7 @@ game=build/production-smoke
 rm -rf "$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
 cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/clients/Moonlit Fixture.jar"
-printf 'guiScale:2\n' > "$game/options.txt"
+printf 'guiScale:2\nonboardAccessibility:false\n' > "$game/options.txt"
 
 pid=''
 cleanup() { if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi; }
