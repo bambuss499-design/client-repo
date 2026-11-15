@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.gui.screens.AccessibilityOnboardingScreen;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWKeyCallback;
 import org.lwjgl.glfw.GLFWCursorPosCallback;
@@ -25,6 +26,7 @@ public final class SmokeHarness implements ClientModInitializer {
     private int diagnosticTicks;
     private boolean sentKey;
     private boolean wroteTitle;
+    private boolean dismissedWelcome;
 
     @Override public void onInitializeClient() {
         if (phase.isBlank()) return;
@@ -42,6 +44,14 @@ public final class SmokeHarness implements ClientModInitializer {
                 if (++diagnosticTicks % 100 == 0) {
                     System.out.println("CLOUDNINE_SMOKE: current screen=" + (client.screen == null ? "none" : client.screen.getClass().getName())
                             + " overlay=" + (client.getOverlay() == null ? "none" : client.getOverlay().getClass().getName()));
+                }
+                // A brand-new isolated production profile can start on the accessibility welcome.
+                // Continue past it through its normal close handler before testing our own UI.
+                if (!dismissedWelcome && client.getOverlay() == null
+                        && client.screen instanceof AccessibilityOnboardingScreen welcome) {
+                    dismissedWelcome = true;
+                    welcome.onClose();
+                    System.out.println("CLOUDNINE_SMOKE: continued past first-run accessibility welcome");
                 }
                 // The title screen exists underneath the Mojang splash: Minecraft intentionally
                 // blocks mouse events until that loading overlay is actually gone.
