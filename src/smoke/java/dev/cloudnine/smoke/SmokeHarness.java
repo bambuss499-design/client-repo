@@ -3,6 +3,8 @@ package dev.cloudnine.smoke;
 import dev.cloudnine.client.CloudNineScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -27,6 +29,12 @@ public final class SmokeHarness implements ClientModInitializer {
         if (phase.isBlank()) return;
         Path game = FabricLoader.getInstance().getGameDir();
         Path output = game.resolve("cloudnine/smoke");
+        ScreenEvents.BEFORE_INIT.register((client, screen, width, height) -> {
+            if (screen instanceof CloudNineScreen) {
+                ScreenMouseEvents.beforeMouseClick(screen).register((ignored, click) ->
+                    System.out.println("CLOUDNINE_SMOKE: mouse event x=" + click.x() + " y=" + click.y() + " button=" + click.button()));
+            }
+        });
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
                 Files.createDirectories(output);
@@ -55,15 +63,23 @@ public final class SmokeHarness implements ClientModInitializer {
                     double scale = client.getWindow().getGuiScale();
                     if (screenTicks == 10) {
                         click(client.getWindow().handle(), screen.firstRowCenterX() * scale, screen.firstRowCenterY() * scale);
-                        System.out.println("CLOUDNINE_SMOKE: selected the fixture row");
+                        System.out.println("CLOUDNINE_SMOKE: requested row click at " + screen.firstRowCenterX() + "," + screen.firstRowCenterY() + " scale=" + scale);
                     }
-                    if (screenTicks == 25) {
+                    if (screenTicks == 15) {
                         Screenshot.grab(client.gameDirectory, "cloudnine-smoke.png", client.getMainRenderTarget(), 1,
                                 result -> System.out.println("CLOUDNINE_SMOKE screenshot: " + result.getString()));
                     }
+                    if (screenTicks == 20) {
+                        Object selected = field(screen, "selected");
+                        System.out.println("CLOUDNINE_SMOKE: selection=" + selected);
+                        if (selected == null) throw new IllegalStateException("Fixture row click did not select an entry");
+                    }
                     if (screenTicks == 45) {
                         click(client.getWindow().handle(), screen.stageButtonCenterX() * scale, screen.stageButtonCenterY() * scale);
-                        System.out.println("CLOUDNINE_SMOKE: clicked the stage button");
+                        System.out.println("CLOUDNINE_SMOKE: requested stage click at " + screen.stageButtonCenterX() + "," + screen.stageButtonCenterY());
+                    }
+                    if (screenTicks == 75) {
+                        System.out.println("CLOUDNINE_SMOKE: status=" + field(screen, "message") + " staging=" + field(screen, "staging"));
                     }
                     if (exitCountdown < 0) {
                         try (var files = Files.list(game.resolve("mods"))) {
@@ -81,6 +97,12 @@ public final class SmokeHarness implements ClientModInitializer {
                 client.stop();
             }
         });
+    }
+
+    private static Object field(Object object, String name) throws ReflectiveOperationException {
+        var field = object.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(object);
     }
 
     private static void pressRightAlt(long window) {
