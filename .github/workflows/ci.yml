@@ -4,9 +4,14 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_preview:
+        description: 'Publish a clearly labeled prototype release after all tests pass'
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-smoke:
@@ -21,13 +26,28 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build, run unit tests, and prepare test mods
-        run: ./gradlew --no-daemon clean build smokeHarnessJar fixtureJar
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! ./gradlew --no-daemon clean build smokeHarnessJar fixtureJar 2>&1 | tee /tmp/cloudnine-build.log; then
+            python3 .github/scripts/annotate.py /tmp/cloudnine-build.log 'Gradle build failed'
+            exit 1
+          fi
       - name: Install virtual display and software OpenGL
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb xdotool imagemagick libgl1-mesa-dri libglx-mesa0
       - name: Launch real Minecraft and exercise one-shot selection
-        run: xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' bash .github/scripts/smoke.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' bash .github/scripts/smoke.sh 2>&1 | tee /tmp/cloudnine-smoke.log; then
+            for log in build/smoke-logs/*.log run/logs/latest.log; do
+              if [ -f "$log" ]; then echo "=== $log ===" >> /tmp/cloudnine-smoke.log; tail -160 "$log" >> /tmp/cloudnine-smoke.log; fi
+            done
+            python3 .github/scripts/annotate.py /tmp/cloudnine-smoke.log 'Minecraft smoke test failed'
+            exit 1
+          fi
       - name: Upload Minecraft screenshot and logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -46,3 +66,13 @@ jobs:
           name: cloudnine-1.21.11
           path: build/libs/cloudnine-*.jar
           if-no-files-found: error
+      - name: Publish prototype release
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.publish_preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="cloudnine-preview-${GITHUB_SHA:0:12}"
+          gh release create "$tag" build/libs/cloudnine-0.1.0.jar \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Cloud Nine prototype (Minecraft 1.21.11)" \
+            --notes "Prototype only: the requested Drive source clients are not included. Review the README for restart behavior, dependencies, and recovery. CI launched a real Minecraft development client and exercised a fixture."
