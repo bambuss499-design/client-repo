@@ -11,7 +11,7 @@ A celestial, restart-based client library for **Minecraft Java 1.21.11 / Fabric*
 1. Install Minecraft Java **1.21.11**, Fabric Loader **0.19.3+**, and a matching **Fabric API**. Java 21 is required.
 2. Put the Cloud Nine JAR in that installation's `mods` folder. Start Minecraft once.
 3. Press **Right Alt**, then **OPEN FOLDER**. Put trusted, compiled **Fabric 1.21.11** `.jar` files there and press **REFRESH**. Files are listed by their JAR filename (without `.jar`).
-4. Select a client, press **USE FOR NEXT LAUNCH**, quit Minecraft, and start the same installation again. Cloud Nine stages only that selected JAR; it does **not** install its dependencies. Check its requirements and install those separately.
+4. Select a client, press **USE FOR NEXT LAUNCH**, and wait for the restart confirmation. Quit Minecraft, then start the same installation again. Cloud Nine stages only that selected JAR; it does **not** install its dependencies. Check its requirements and install those separately.
 5. The selected copy is meant for one session. A small local Java cleanup helper waits for Minecraft to exit and deletes only Cloud Nine's own unchanged copy. Wait a few seconds before the following launch. The original library JAR is never removed.
 
 Cloud Nine **does not hot-load or unload Fabric or running mods** and does not restart the game itself. Fabric discovers mods at startup. Metadata checks are only a preliminary filter: compatibility, dependencies, licensing, and code safety are **not guaranteed**. A mod can run arbitrary code, so use only files you trust.

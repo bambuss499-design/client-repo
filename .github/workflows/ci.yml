@@ -5,26 +5,16 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      inspect_run_id:
-        description: 'Optional successful run ID for screenshot inspection only'
-        type: string
-        required: false
-      inspect_file:
-        description: 'Artifact file name to inspect'
-        type: string
-        default: 'cloudnine-screen.png'
       publish_preview:
         description: 'Publish a clearly labeled prototype release after all tests pass'
         type: boolean
         default: false
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
   build-and-smoke:
-    if: github.event_name != 'workflow_dispatch' || inputs.inspect_run_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -73,7 +63,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cloudnine-1.21.11
-          path: build/libs/cloudnine-*.jar
+          path: |
+            build/libs/cloudnine-*.jar
+            !build/libs/*-sources.jar
           if-no-files-found: error
       - name: Publish prototype release
         if: success() && github.event_name == 'workflow_dispatch' && inputs.publish_preview
@@ -81,32 +73,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="cloudnine-preview-${GITHUB_SHA:0:12}"
-          gh release create "$tag" build/libs/cloudnine-0.1.0.jar \
+          (cd build/libs && sha256sum cloudnine-0.1.0.jar > cloudnine-0.1.0.jar.sha256)
+          gh release create "$tag" build/libs/cloudnine-0.1.0.jar build/libs/cloudnine-0.1.0.jar.sha256 \
             --target "$GITHUB_SHA" --prerelease \
             --title "Cloud Nine prototype (Minecraft 1.21.11)" \
-            --notes "Prototype only: the requested Drive source clients are not included. Review the README for restart behavior, dependencies, and recovery. CI launched the remapped prototype JAR in a real Minecraft production-like client and exercised a fixture."
+            --notes-file - <<'NOTES'
+          **Prototype only.** The requested 67source Drive clients are not included.
 
-  inspect-screenshot:
-    if: github.event_name == 'workflow_dispatch' && inputs.inspect_run_id != ''
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: minecraft-smoke-evidence
-          run-id: ${{ inputs.inspect_run_id }}
-          github-token: ${{ github.token }}
-          path: evidence
-      - name: Expose diagnostic file as an unreferenced blob
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET: ${{ inputs.inspect_file }}
-        run: |
-          file=$(find evidence -type f -name "$TARGET" -print -quit)
-          test -n "$file"
-          python3 - "$file" > /tmp/blob.json <<'PYCODE'
-          import base64, json, sys
-          with open(sys.argv[1], 'rb') as stream:
-              print(json.dumps({'content': base64.b64encode(stream.read()).decode(), 'encoding': 'base64'}))
-          PYCODE
-          sha=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input /tmp/blob.json --jq .sha)
-          echo "::notice title=Diagnostic blob::$sha"
+          Requires Minecraft Java 1.21.11, Java 21, Fabric Loader 0.19.3 or newer, and Fabric API.
+          Put the JAR in your mods folder and press Right Alt. Add trusted compiled Fabric JARs to
+          the library folder, select one, quit, and restart Minecraft to use it for one session.
+          Dependencies are not installed automatically; existing mods remain untouched.
+
+          Fabric cannot safely hot-swap arbitrary mods while the game is running. If a selected
+          mod crashes before cleanup, see the README for manual recovery. CI tested this remapped
+          JAR in a real production-like Minecraft client using a synthetic fixture over three launches.
+          NOTES
