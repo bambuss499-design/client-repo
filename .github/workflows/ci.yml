@@ -5,16 +5,22 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      inspect_run_id:
+        description: 'Optional successful run ID for screenshot inspection only'
+        type: string
+        required: false
       publish_preview:
         description: 'Publish a clearly labeled prototype release after all tests pass'
         type: boolean
         default: false
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
   build-and-smoke:
+    if: github.event_name != 'workflow_dispatch' || inputs.inspect_run_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -76,3 +82,27 @@ jobs:
             --target "$GITHUB_SHA" --prerelease \
             --title "Cloud Nine prototype (Minecraft 1.21.11)" \
             --notes "Prototype only: the requested Drive source clients are not included. Review the README for restart behavior, dependencies, and recovery. CI launched a real Minecraft development client and exercised a fixture."
+
+  inspect-screenshot:
+    if: github.event_name == 'workflow_dispatch' && inputs.inspect_run_id != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: minecraft-smoke-evidence
+          run-id: ${{ inputs.inspect_run_id }}
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Expose screenshot as an unreferenced diagnostic blob
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image=$(find evidence -name cloudnine-screen.png -print -quit)
+          test -n "$image"
+          python3 - "$image" > /tmp/blob.json <<'PYCODE'
+          import base64, json, sys
+          with open(sys.argv[1], 'rb') as stream:
+              print(json.dumps({'content': base64.b64encode(stream.read()).decode(), 'encoding': 'base64'}))
+          PYCODE
+          sha=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input /tmp/blob.json --jq .sha)
+          echo "::notice title=Screenshot blob::$sha"
