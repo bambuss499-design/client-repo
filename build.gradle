@@ -53,14 +53,10 @@ jar { from('LICENSE') { rename { "${it}_${project.name}" } } }
 // Small, local-only test mods; neither is included in the distributable.
 sourceSets {
     smoke {
-        java.srcDir 'src/smoke/java'
-        resources.srcDir 'src/smoke/resources'
         compileClasspath += sourceSets.main.output + sourceSets.client.output + sourceSets.client.compileClasspath
         runtimeClasspath += output + compileClasspath
     }
     fixture {
-        java.srcDir 'src/fixture/java'
-        resources.srcDir 'src/fixture/resources'
         compileClasspath += sourceSets.main.compileClasspath
         runtimeClasspath += output + compileClasspath
     }
