@@ -181,7 +181,7 @@ public final class CloudNineScreen extends Screen {
             String detail = selected.canStage() ? "ID: " + selected.modId() : selected.problem();
             draw(g, clip(detail, rightWidth - 22), rightX + 11, y + 110, MUTED);
             if (selected.canStage()) {
-                draw(g, clip("Dependencies are not installed for you.", rightWidth - 22), rightX + 11, y + 123, MUTED);
+                draw(g, clip("Install required dependencies.", rightWidth - 22), rightX + 11, y + 123, MUTED);
                 if (stageY > y + 205) {
                     rounded(g, rightX + 10, y + 143, rightWidth - 20, 61, 6, 0xA3263250);
                     draw(g, clip("ONE SESSION, YOUR WAY", rightWidth - 36), rightX + 18, y + 153, LAVENDER);

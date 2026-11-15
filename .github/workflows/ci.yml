@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if ! ./gradlew --no-daemon clean build smokeHarnessJar fixtureJar 2>&1 | tee /tmp/cloudnine-build.log; then
+          if ! ./gradlew --no-daemon clean build remapSmokeHarnessJar fixtureJar 2>&1 | tee /tmp/cloudnine-build.log; then
             python3 .github/scripts/annotate.py /tmp/cloudnine-build.log 'Gradle build failed'
             exit 1
           fi
@@ -48,7 +48,7 @@ jobs:
         run: |
           set -o pipefail
           if ! xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' bash .github/scripts/smoke.sh 2>&1 | tee /tmp/cloudnine-smoke.log; then
-            for log in build/smoke-logs/*.log run/logs/latest.log; do
+            for log in build/smoke-logs/*.log build/production-smoke/logs/latest.log; do
               if [ -f "$log" ]; then echo "=== $log ===" >> /tmp/cloudnine-smoke.log; tail -160 "$log" >> /tmp/cloudnine-smoke.log; fi
             done
             python3 .github/scripts/annotate.py /tmp/cloudnine-smoke.log 'Minecraft smoke test failed'
@@ -62,8 +62,8 @@ jobs:
           path: |
             build/smoke-logs/
             build/cloudnine-screen.png
-            run/logs/latest.log
-            run/crash-reports/
+            build/production-smoke/logs/latest.log
+            build/production-smoke/crash-reports/
           if-no-files-found: ignore
       - name: Upload mod JAR
         if: success()
@@ -81,7 +81,7 @@ jobs:
           gh release create "$tag" build/libs/cloudnine-0.1.0.jar \
             --target "$GITHUB_SHA" --prerelease \
             --title "Cloud Nine prototype (Minecraft 1.21.11)" \
-            --notes "Prototype only: the requested Drive source clients are not included. Review the README for restart behavior, dependencies, and recovery. CI launched a real Minecraft development client and exercised a fixture."
+            --notes "Prototype only: the requested Drive source clients are not included. Review the README for restart behavior, dependencies, and recovery. CI launched the remapped prototype JAR in a real Minecraft production-like client and exercised a fixture."
 
   inspect-screenshot:
     if: github.event_name == 'workflow_dispatch' && inputs.inspect_run_id != ''

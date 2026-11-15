@@ -31,6 +31,7 @@ dependencies {
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+    productionRuntimeMods("net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}") { transitive = false }
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -73,4 +74,20 @@ tasks.register('fixtureJar', Jar) {
     archiveFileName = 'Moonlit Fixture.jar'
     destinationDirectory = layout.buildDirectory.dir('smoke')
     from sourceSets.fixture.output
+}
+
+// Exercise the distributable, not just development classes, using Fabric's production launcher.
+tasks.register('remapSmokeHarnessJar', net.fabricmc.loom.task.RemapJarTask) {
+    inputFile = tasks.named('smokeHarnessJar', Jar).flatMap { it.archiveFile }
+    archiveFileName = 'cloudnine-smoke-harness-remapped.jar'
+    destinationDirectory = layout.buildDirectory.dir('smoke')
+    classpath.from(sourceSets.client.compileClasspath, sourceSets.main.output, sourceSets.client.output)
+    addNestedDependencies = false
+}
+tasks.register('productionSmoke', net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+    mods.from tasks.named('remapSmokeHarnessJar')
+    runDir = layout.buildDirectory.dir('production-smoke')
+    useXVFB = false // CI supplies one X server for the entire three-launch scenario.
+    programArgs.addAll('--username', 'CloudNineCI', '--uuid', '00000000-0000-4000-8000-000000000001',
+            '--accessToken', '0', '--version', '1.21.11', '--width', '1280', '--height', '720')
 }

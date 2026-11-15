@@ -2,6 +2,8 @@
 
 A celestial, restart-based client library for **Minecraft Java 1.21.11 / Fabric**. Press **Right Alt** (rebindable in Controls) to open it. Cloud Nine lists compiled Fabric JARs by their filenames, lets you preview their metadata, and stages one for the next launch.
 
+![Cloud Nine interface, shown with a test fixture](docs/preview.png)
+
 > **Prototype / source-folder status:** the requested `67source` Google Drive folder was not accessible when this was built. No clients from that folder are included or claimed to be compatible. Source ZIPs are not executable mods: they must be inspected and built separately for 1.21.11.
 
 ## Install
@@ -26,7 +28,7 @@ If a selected JAR crashes Fabric before Cloud Nine starts, or if a launcher forc
 ./gradlew build
 ```
 
-The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft development client** under Xvfb/software OpenGL. After the loading overlay clears, it sends Right Alt and mouse events through Minecraft's GLFW callbacks, selects a fixture in the UI, relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The test fixture is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
+The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Right Alt and mouse events through Minecraft's GLFW callbacks, selects a fixture in the UI, relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
 
 ## Privacy and storage
 
