@@ -1,0 +1,80 @@
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+base { archivesName = project.archives_base_name }
+
+loom {
+    splitEnvironmentSourceSets()
+    mods {
+        cloudnine {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+    runs {
+        client {
+            programArg '--width'
+            programArg '1280'
+            programArg '--height'
+            programArg '720'
+        }
+    }
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+tasks.withType(JavaCompile).configureEach { options.release = 21 }
+test { useJUnitPlatform() }
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+jar { from('LICENSE') { rename { "${it}_${project.name}" } } }
+
+// Small, local-only test mods; neither is included in the distributable.
+sourceSets {
+    smoke {
+        java.srcDir 'src/smoke/java'
+        resources.srcDir 'src/smoke/resources'
+        compileClasspath += sourceSets.main.output + sourceSets.client.output + sourceSets.client.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+    fixture {
+        java.srcDir 'src/fixture/java'
+        resources.srcDir 'src/fixture/resources'
+        compileClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+tasks.register('smokeHarnessJar', Jar) {
+    dependsOn tasks.named('smokeClasses')
+    archiveFileName = 'cloudnine-smoke-harness.jar'
+    destinationDirectory = layout.buildDirectory.dir('smoke')
+    from sourceSets.smoke.output
+}
+tasks.register('fixtureJar', Jar) {
+    dependsOn tasks.named('fixtureClasses')
+    archiveFileName = 'Moonlit Fixture.jar'
+    destinationDirectory = layout.buildDirectory.dir('smoke')
+    from sourceSets.fixture.output
+}

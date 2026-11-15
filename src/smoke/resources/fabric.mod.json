@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "cloudninesmoke",
+  "version": "1.0.0",
+  "name": "Cloud Nine smoke test harness",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.cloudnine.smoke.SmokeHarness"] },
+  "depends": { "cloudnine": "*", "fabric-api": "*", "minecraft": "1.21.11" }
+}

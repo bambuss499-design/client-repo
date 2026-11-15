@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "cloudnine",
+  "version": "${version}",
+  "name": "Cloud Nine",
+  "description": "A celestial, restart-based library for Fabric clients.",
+  "authors": ["Cloud Nine contributors"],
+  "license": "CC0-1.0",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.cloudnine.client.CloudNineClient"] },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

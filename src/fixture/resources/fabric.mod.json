@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "cloudninefixture",
+  "version": "1.0.0",
+  "name": "Moonlit Fixture",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.cloudnine.fixture.FixtureClient"] },
+  "depends": { "minecraft": "1.21.11", "fabricloader": ">=0.19.3" }
+}
