@@ -52,8 +52,9 @@ public final class CloudNineScreen extends Screen {
 
     @Override
     protected void init() {
-        panelWidth = Math.min(760, Math.max(240, width - 20));
-        panelHeight = Math.min(430, Math.max(190, height - 20));
+        // Leave a generous frame of sky around the library on ordinary displays.
+        panelWidth = Math.min(700, Math.max(240, width - (width >= 440 ? 80 : 20)));
+        panelHeight = Math.min(410, Math.max(190, height - (height >= 280 ? 54 : 20)));
         x = (width - panelWidth) / 2;
         y = (height - panelHeight) / 2;
         int innerWidth = panelWidth - 28;
@@ -71,7 +72,6 @@ public final class CloudNineScreen extends Screen {
                 Component.literal("Search clients"));
         search.setBordered(false);
         search.setMaxLength(80);
-        search.setHint(Component.literal("Search your library..."));
         search.setValue(priorSearch);
         search.setResponder(value -> offset = 0);
         addRenderableWidget(search);
@@ -114,10 +114,10 @@ public final class CloudNineScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         g.blit(RenderPipelines.GUI_TEXTURED, SKY, 0, 0, 0.0F, 0.0F, width, height,
                 1376, 768, 1376, 768, 0xFFFFFFFF);
-        g.fill(0, 0, width, height, 0x9A070B1B);
+        g.fill(0, 0, width, height, 0x66070B1B);
         rounded(g, x + 2, y + 5, panelWidth, panelHeight, 10, 0x77020612);
-        rounded(g, x, y, panelWidth, panelHeight, 10, 0xE0202947);
-        rounded(g, x + 1, y + 1, panelWidth - 2, panelHeight - 2, 9, 0xF10D1428);
+        rounded(g, x, y, panelWidth, panelHeight, 10, 0xB0202947);
+        rounded(g, x + 1, y + 1, panelWidth - 2, panelHeight - 2, 9, 0xD60D1428);
         // Fine, luminous top edge and understated stars.
         g.fill(x + 15, y + 1, x + panelWidth - 15, y + 2, 0x887F91DD);
         star(g, x + panelWidth - 55, y + 15, 0xFF92A3E2);
@@ -135,6 +135,9 @@ public final class CloudNineScreen extends Screen {
         g.fill(leftX + 15, y + 56, leftX + 16, y + 61, 0xFFAABCEB);
         g.fill(leftX + 9, y + 61, leftX + 15, y + 62, 0xFFAABCEB);
         g.fill(leftX + 15, y + 62, leftX + 18, y + 63, 0xFFAABCEB);
+        if (search.getValue().isEmpty() && !search.isFocused()) {
+            draw(g, clip("Search your library...", leftWidth - 36), leftX + 28, y + 52, MUTED);
+        }
         rounded(g, leftX, listTop, leftWidth, listBottom - listTop, 7, 0xC9141D34);
         draw(g, "YOUR LIBRARY", leftX + 10, listTop + 8, 0xFFB8C7E8);
         String count = Integer.toString(visibleEntries().size());
@@ -177,14 +180,22 @@ public final class CloudNineScreen extends Screen {
             draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() ? MINT : AMBER);
             String detail = selected.canStage() ? "ID: " + selected.modId() : selected.problem();
             draw(g, clip(detail, rightWidth - 22), rightX + 11, y + 110, MUTED);
-            if (selected.canStage()) draw(g, clip("Dependencies are not installed for you.", rightWidth - 22), rightX + 11, y + 123, MUTED);
+            if (selected.canStage()) {
+                draw(g, clip("Dependencies are not installed for you.", rightWidth - 22), rightX + 11, y + 123, MUTED);
+                if (stageY > y + 205) {
+                    rounded(g, rightX + 10, y + 143, rightWidth - 20, 61, 6, 0xA3263250);
+                    draw(g, clip("ONE SESSION, YOUR WAY", rightWidth - 36), rightX + 18, y + 153, LAVENDER);
+                    draw(g, clip("1  Select a trusted client", rightWidth - 36), rightX + 18, y + 170, TEXT);
+                    draw(g, clip("2  Restart Minecraft to use it", rightWidth - 36), rightX + 18, y + 184, TEXT);
+                }
+            }
         }
         boolean canStage = selected != null && selected.canStage() && library != null && !staging;
-        button(g, rightX + 10, stageY, rightWidth - 20, 21, staging ? "STAGING..." : "USE FOR NEXT LAUNCH", mouseX, mouseY, canStage);
+        button(g, rightX + 10, stageY, rightWidth - 20, 21, staging ? "WORKING..." : "USE FOR NEXT LAUNCH", mouseX, mouseY, canStage);
 
         g.fill(x + 14, footerY - 6, x + panelWidth - 14, footerY - 5, 0xFF2A3653);
         boolean hasPending = library != null && library.hasPending();
-        String status = error ? message : staging ? "Preparing your selection..."
+        String status = error ? message : staging ? "Updating your selection..."
                 : hasPending ? "Restart to use " + library.pendingLabel() + " once."
                 : library != null && !library.activeLabels().isEmpty() ? "Active this session; clears after exit."
                 : !message.isEmpty() ? message : "One selection. One session. Existing mods stay untouched.";
@@ -202,8 +213,7 @@ public final class CloudNineScreen extends Screen {
             double mx = click.x(), my = click.y();
             if (inside(mx, my, x + panelWidth - 28, y + 14, 15, 15)) { onClose(); return true; }
             if (inside(mx, my, x + panelWidth - 207, footerY, 50, 16) && library != null && library.hasPending() && !staging) {
-                try { library.cancelPending(); message = "Selection cancelled."; error = false; }
-                catch (IOException e) { message = e.getMessage(); error = true; }
+                cancelPending();
                 return true;
             }
             if (inside(mx, my, x + panelWidth - 151, footerY, 55, 16)) {
@@ -235,6 +245,25 @@ public final class CloudNineScreen extends Screen {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
+    }
+
+    private void cancelPending() {
+        staging = true;
+        error = false;
+        CompletableFuture.runAsync(() -> {
+            try { library.cancelPending(); }
+            catch (IOException e) { throw new CompletionException(e); }
+        }).whenComplete((ignored, failure) -> {
+            if (minecraft == null) return;
+            minecraft.execute(() -> {
+                staging = false;
+                if (failure == null) { message = "Selection cancelled."; error = false; }
+                else {
+                    Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+                    message = "Could not cancel: " + cause.getMessage(); error = true;
+                }
+            });
+        });
     }
 
     private void stageSelected() {

@@ -8,6 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -77,6 +80,25 @@ class ClientLibraryTest {
         assertFalse(library.hasPending());
         assertTrue(managedJars(mods).isEmpty());
         assertTrue(Files.exists(unrelated));
+    }
+
+    @Test void concurrentSelectionsStillLeaveOnlyOnePendingCopy() throws Exception {
+        jar("One.jar", metadata("client_one", "1.21.11"));
+        jar("Two.jar", metadata("client_two", "1.21.11"));
+        ClientLibrary library = new ClientLibrary(game);
+        List<LibraryEntry> entries = library.scan();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            for (int round = 0; round < 12; round++) {
+                CountDownLatch start = new CountDownLatch(1);
+                Future<?> first = executor.submit(() -> { start.await(); library.stage(entries.get(0)); return null; });
+                Future<?> second = executor.submit(() -> { start.await(); library.stage(entries.get(1)); return null; });
+                start.countDown();
+                first.get();
+                second.get();
+                assertEquals(1, managedJars(game.resolve("mods")).size());
+                assertTrue(library.hasPending());
+            }
+        }
     }
 
     @Test void nextSessionIsRecognizedAndStagingAnotherDoesNotRemoveActive() throws Exception {

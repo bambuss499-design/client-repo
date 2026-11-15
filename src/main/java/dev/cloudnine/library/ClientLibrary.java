@@ -51,7 +51,7 @@ public final class ClientLibrary {
         return List.copyOf(entries);
     }
 
-    public void stage(LibraryEntry entry) throws IOException {
+    public synchronized void stage(LibraryEntry entry) throws IOException {
         Path source = entry.file().toAbsolutePath().normalize();
         if (!source.getParent().equals(clientsDir) || !Files.isRegularFile(source)) {
             throw new IOException("The selected file is no longer in the client library.");
@@ -69,14 +69,20 @@ public final class ClientLibrary {
     }
 
     public boolean hasPending() { return pending != null; }
-    public String pendingLabel() { return pending == null ? "" : pending.label(); }
-    public boolean isPending(LibraryEntry entry) { return pending != null && pending.modId().equals(entry.modId()) && pending.label().equals(entry.label()); }
+    public String pendingLabel() {
+        ManagedFiles.Managed current = pending;
+        return current == null ? "" : current.label();
+    }
+    public boolean isPending(LibraryEntry entry) {
+        ManagedFiles.Managed current = pending;
+        return current != null && current.modId().equals(entry.modId()) && current.label().equals(entry.label());
+    }
     public boolean isActive(LibraryEntry entry) {
         return !entry.modId().isBlank() && active.stream().anyMatch(item -> item.modId().equals(entry.modId()));
     }
     public List<String> activeLabels() { return active.stream().map(ManagedFiles.Managed::label).toList(); }
 
-    public void cancelPending() throws IOException {
+    public synchronized void cancelPending() throws IOException {
         if (pending != null) {
             managed.deleteOwned(pending.id());
             pending = null;
