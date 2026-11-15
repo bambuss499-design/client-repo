@@ -4,17 +4,23 @@ import dev.cloudnine.client.CloudNineScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
-import org.lwjgl.glfw.GLFWNativeX11;
+import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWCursorPosCallback;
+import org.lwjgl.glfw.GLFWKeyCallback;
+import org.lwjgl.glfw.GLFWMouseButtonCallback;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** Test-only mod. It observes real GUI events; xdotool performs the inputs. */
+/** Test-only mod: drives Minecraft's registered GLFW callbacks, not selector methods. */
 public final class SmokeHarness implements ClientModInitializer {
     private final String phase = System.getenv().getOrDefault("CLOUDNINE_SMOKE_PHASE", "");
     private int exitCountdown = -1;
-    private boolean wroteLayout;
+    private int titleTicks;
+    private int screenTicks;
+    private boolean sentKey;
     private boolean wroteTitle;
 
     @Override public void onInitializeClient() {
@@ -24,41 +30,50 @@ public final class SmokeHarness implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
                 Files.createDirectories(output);
-                if (client.screen instanceof TitleScreen && !wroteTitle) {
-                    // X11's native window ID is more reliable than guessing the development window title.
-                    long window = GLFWNativeX11.glfwGetX11Window(client.getWindow().handle());
-                    Files.writeString(output.resolve("title-ready"), Long.toUnsignedString(window));
-                    wroteTitle = true;
+                if (client.screen instanceof TitleScreen) {
+                    if (!wroteTitle) { Files.writeString(output.resolve("title-ready"), "ready\n"); wroteTitle = true; }
+                    if (phase.equals("stage") && !sentKey && ++titleTicks >= 25) {
+                        pressRightAlt(client.getWindow().handle());
+                        sentKey = true;
+                        System.out.println("CLOUDNINE_SMOKE: sent Right Alt through Minecraft's GLFW callback");
+                    }
+                    if (exitCountdown < 0 && phase.equals("loaded")) {
+                        if (!FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
+                            throw new IllegalStateException("Selected fixture did not initialize");
+                        }
+                        Files.writeString(output.resolve("loaded"), "Fabric loaded the selected fixture\n");
+                        exitCountdown = 40;
+                    }
+                    if (exitCountdown < 0 && phase.equals("empty")) {
+                        if (FabricLoader.getInstance().isModLoaded("cloudninefixture")) throw new IllegalStateException("Fixture was not one-shot");
+                        Files.writeString(output.resolve("empty"), "Fixture absent on subsequent launch\n");
+                        exitCountdown = 40;
+                    }
                 }
-                if (phase.equals("stage") && client.screen instanceof CloudNineScreen screen && !wroteLayout) {
+                if (phase.equals("stage") && client.screen instanceof CloudNineScreen screen) {
+                    screenTicks++;
                     double scale = client.getWindow().getGuiScale();
-                    String coords = "ROW_X=" + Math.round(screen.firstRowCenterX() * scale)
-                            + "\nROW_Y=" + Math.round(screen.firstRowCenterY() * scale)
-                            + "\nSTAGE_X=" + Math.round(screen.stageButtonCenterX() * scale)
-                            + "\nSTAGE_Y=" + Math.round(screen.stageButtonCenterY() * scale) + "\n";
-                    Files.writeString(output.resolve("layout.env"), coords);
-                    wroteLayout = true;
-                }
-                if (phase.equals("stage") && wroteLayout && exitCountdown < 0) {
-                    try (var files = Files.list(game.resolve("mods"))) {
-                        if (files.anyMatch(path -> path.getFileName().toString().startsWith("cloudnine-once-")
-                                && path.toString().endsWith(".jar"))) {
-                            Files.writeString(output.resolve("staged"), "selected via the real screen\n");
-                            exitCountdown = 40;
+                    if (screenTicks == 10) {
+                        click(client.getWindow().handle(), screen.firstRowCenterX() * scale, screen.firstRowCenterY() * scale);
+                        System.out.println("CLOUDNINE_SMOKE: selected the fixture row");
+                    }
+                    if (screenTicks == 25) {
+                        Screenshot.grab(client.gameDirectory, "cloudnine-smoke.png", client.getMainRenderTarget(), 1,
+                                result -> System.out.println("CLOUDNINE_SMOKE screenshot: " + result.getString()));
+                    }
+                    if (screenTicks == 45) {
+                        click(client.getWindow().handle(), screen.stageButtonCenterX() * scale, screen.stageButtonCenterY() * scale);
+                        System.out.println("CLOUDNINE_SMOKE: clicked the stage button");
+                    }
+                    if (exitCountdown < 0) {
+                        try (var files = Files.list(game.resolve("mods"))) {
+                            if (files.anyMatch(path -> path.getFileName().toString().startsWith("cloudnine-once-")
+                                    && path.toString().endsWith(".jar"))) {
+                                Files.writeString(output.resolve("stage"), "Right Alt and UI click staged the fixture\n");
+                                exitCountdown = 60;
+                            }
                         }
                     }
-                }
-                if (client.screen instanceof TitleScreen && exitCountdown < 0 && phase.equals("loaded")) {
-                    if (!FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
-                        throw new IllegalStateException("Selected fixture did not initialize");
-                    }
-                    Files.writeString(output.resolve("loaded"), "Fabric loaded the selected fixture\n");
-                    exitCountdown = 40;
-                }
-                if (client.screen instanceof TitleScreen && exitCountdown < 0 && phase.equals("empty")) {
-                    if (FabricLoader.getInstance().isModLoaded("cloudninefixture")) throw new IllegalStateException("Fixture was not one-shot");
-                    Files.writeString(output.resolve("empty"), "Fixture absent on subsequent launch\n");
-                    exitCountdown = 40;
                 }
                 if (exitCountdown >= 0 && --exitCountdown == 0) client.stop();
             } catch (Exception e) {
@@ -66,5 +81,25 @@ public final class SmokeHarness implements ClientModInitializer {
                 client.stop();
             }
         });
+    }
+
+    private static void pressRightAlt(long window) {
+        GLFWKeyCallback callback = GLFW.glfwSetKeyCallback(window, null);
+        if (callback == null) throw new IllegalStateException("Minecraft did not register a key callback");
+        GLFW.glfwSetKeyCallback(window, callback);
+        callback.invoke(window, GLFW.GLFW_KEY_RIGHT_ALT, 0, GLFW.GLFW_PRESS, GLFW.GLFW_MOD_ALT);
+        callback.invoke(window, GLFW.GLFW_KEY_RIGHT_ALT, 0, GLFW.GLFW_RELEASE, 0);
+    }
+
+    private static void click(long window, double x, double y) {
+        GLFWCursorPosCallback motion = GLFW.glfwSetCursorPosCallback(window, null);
+        if (motion == null) throw new IllegalStateException("Minecraft did not register a cursor callback");
+        GLFW.glfwSetCursorPosCallback(window, motion);
+        motion.invoke(window, x, y);
+        GLFWMouseButtonCallback button = GLFW.glfwSetMouseButtonCallback(window, null);
+        if (button == null) throw new IllegalStateException("Minecraft did not register a mouse callback");
+        GLFW.glfwSetMouseButtonCallback(window, button);
+        button.invoke(window, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS, 0);
+        button.invoke(window, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE, 0);
     }
 }

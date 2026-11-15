@@ -36,7 +36,7 @@ jobs:
       - name: Install virtual display and software OpenGL
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xdotool imagemagick libgl1-mesa-dri libglx-mesa0
+          sudo apt-get install -y xvfb libgl1-mesa-dri libglx-mesa0
       - name: Launch real Minecraft and exercise one-shot selection
         shell: bash
         run: |
