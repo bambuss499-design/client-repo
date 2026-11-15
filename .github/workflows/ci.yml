@@ -66,6 +66,8 @@ jobs:
           path: |
             build/smoke-logs/
             build/cloudnine-screen.png
+            build/production-smoke/screenshots/
+            build/production-smoke/options.txt
             build/production-smoke/logs/latest.log
             build/production-smoke/crash-reports/
           if-no-files-found: ignore

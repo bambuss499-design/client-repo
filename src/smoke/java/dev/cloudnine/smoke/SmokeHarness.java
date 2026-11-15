@@ -88,6 +88,9 @@ public final class SmokeHarness implements ClientModInitializer {
                     }
                     if (screenTicks == 20) {
                         Object selected = field(screen, "selected");
+                        System.out.println("CLOUDNINE_SMOKE: library entries=" + field(screen, "entries"));
+                        System.out.println("CLOUDNINE_SMOKE: loader game=" + game + " minecraft game=" + client.gameDirectory
+                                + " fixture exists=" + Files.exists(game.resolve("cloudnine/clients/Moonlit Fixture.jar")));
                         System.out.println("CLOUDNINE_SMOKE: selection=" + selected);
                         if (selected == null) throw new IllegalStateException("Fixture row click did not select an entry");
                     }
