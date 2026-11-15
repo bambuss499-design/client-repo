@@ -26,7 +26,7 @@ public final class SmokeHarness implements ClientModInitializer {
                 Files.createDirectories(output);
                 if (client.screen instanceof TitleScreen && !wroteTitle) {
                     // X11's native window ID is more reliable than guessing the development window title.
-                    long window = GLFWNativeX11.glfwGetX11Window(client.getWindow().getWindow());
+                    long window = GLFWNativeX11.glfwGetX11Window(client.getWindow().handle());
                     Files.writeString(output.resolve("title-ready"), Long.toUnsignedString(window));
                     wroteTitle = true;
                 }
