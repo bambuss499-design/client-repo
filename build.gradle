@@ -86,7 +86,7 @@ tasks.register('remapSmokeHarnessJar', net.fabricmc.loom.task.RemapJarTask) {
 }
 tasks.register('productionSmoke', net.fabricmc.loom.task.prod.ClientProductionRunTask) {
     mods.from tasks.named('remapSmokeHarnessJar')
-    runDir = layout.buildDirectory.dir('production-smoke')
+    runDir = file(System.getenv('CLOUDNINE_SMOKE_DIR') ?: 'run/cloudnine-ci')
     useXVFB = false // CI supplies one X server for the entire three-launch scenario.
     programArgs.addAll('--username', 'CloudNineCI', '--uuid', '00000000-0000-4000-8000-000000000001',
             '--accessToken', '0', '--version', '1.21.11', '--width', '1280', '--height', '720')

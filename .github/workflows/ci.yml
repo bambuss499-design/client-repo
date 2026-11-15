@@ -52,7 +52,7 @@ jobs:
         run: |
           set -o pipefail
           if ! xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' bash .github/scripts/smoke.sh 2>&1 | tee /tmp/cloudnine-smoke.log; then
-            for log in build/smoke-logs/*.log build/production-smoke/logs/latest.log; do
+            for log in build/smoke-logs/*.log build/production-evidence/latest.log; do
               if [ -f "$log" ]; then echo "=== $log ===" >> /tmp/cloudnine-smoke.log; tail -160 "$log" >> /tmp/cloudnine-smoke.log; fi
             done
             python3 .github/scripts/annotate.py /tmp/cloudnine-smoke.log 'Minecraft smoke test failed'
@@ -66,10 +66,7 @@ jobs:
           path: |
             build/smoke-logs/
             build/cloudnine-screen.png
-            build/production-smoke/screenshots/
-            build/production-smoke/options.txt
-            build/production-smoke/logs/latest.log
-            build/production-smoke/crash-reports/
+            build/production-evidence/
           if-no-files-found: ignore
       - name: Upload mod JAR
         if: success()

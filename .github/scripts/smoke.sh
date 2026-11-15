@@ -3,15 +3,23 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 export LIBGL_ALWAYS_SOFTWARE=1
 export ALSOFT_DRIVERS=null
-# This is an isolated, disposable game directory, never the developer's real run/ directory.
-game=build/production-smoke
-rm -rf "$game"
+# Keep the game outside Gradle's build output tree so its stale-output cleanup cannot
+# remove the selected mod between launches (and never touch the developer's run/).
+game=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cloudnine-smoke-XXXXXX")
+export CLOUDNINE_SMOKE_DIR="$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
 cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/clients/Moonlit Fixture.jar"
 printf 'version:4671\nguiScale:2\nonboardAccessibility:false\n' > "$game/options.txt"
 
 pid=''
-cleanup() { if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi; }
+cleanup() {
+  if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
+  mkdir -p build/production-evidence
+  for path in screenshots crash-reports options.txt cloudnine/cleanup.log logs/latest.log; do
+    if [[ -e "$game/$path" ]]; then cp -a "$game/$path" build/production-evidence/ || true; fi
+  done
+  rm -rf "$game"
+}
 trap cleanup EXIT
 
 wait_for_file() {
