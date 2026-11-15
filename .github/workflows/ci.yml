@@ -9,6 +9,10 @@ on:
         description: 'Optional successful run ID for screenshot inspection only'
         type: string
         required: false
+      inspect_file:
+        description: 'Artifact file name to inspect'
+        type: string
+        default: 'cloudnine-screen.png'
       publish_preview:
         description: 'Publish a clearly labeled prototype release after all tests pass'
         type: boolean
@@ -93,16 +97,17 @@ jobs:
           run-id: ${{ inputs.inspect_run_id }}
           github-token: ${{ github.token }}
           path: evidence
-      - name: Expose screenshot as an unreferenced diagnostic blob
+      - name: Expose diagnostic file as an unreferenced blob
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.inspect_file }}
         run: |
-          image=$(find evidence -name cloudnine-screen.png -print -quit)
-          test -n "$image"
-          python3 - "$image" > /tmp/blob.json <<'PYCODE'
+          file=$(find evidence -type f -name "$TARGET" -print -quit)
+          test -n "$file"
+          python3 - "$file" > /tmp/blob.json <<'PYCODE'
           import base64, json, sys
           with open(sys.argv[1], 'rb') as stream:
               print(json.dumps({'content': base64.b64encode(stream.read()).decode(), 'encoding': 'base64'}))
           PYCODE
           sha=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input /tmp/blob.json --jq .sha)
-          echo "::notice title=Screenshot blob::$sha"
+          echo "::notice title=Diagnostic blob::$sha"

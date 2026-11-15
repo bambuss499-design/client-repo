@@ -22,6 +22,7 @@ public final class SmokeHarness implements ClientModInitializer {
     private int exitCountdown = -1;
     private int titleTicks;
     private int screenTicks;
+    private int diagnosticTicks;
     private boolean sentKey;
     private boolean wroteTitle;
 
@@ -38,6 +39,10 @@ public final class SmokeHarness implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             try {
                 Files.createDirectories(output);
+                if (++diagnosticTicks % 100 == 0) {
+                    System.out.println("CLOUDNINE_SMOKE: current screen=" + (client.screen == null ? "none" : client.screen.getClass().getName())
+                            + " overlay=" + (client.getOverlay() == null ? "none" : client.getOverlay().getClass().getName()));
+                }
                 // The title screen exists underneath the Mojang splash: Minecraft intentionally
                 // blocks mouse events until that loading overlay is actually gone.
                 if (client.screen instanceof TitleScreen && client.getOverlay() == null) {

@@ -32,7 +32,7 @@ launch() {
   echo "Launching Minecraft: $phase"
   CLOUDNINE_SMOKE_PHASE="$phase" timeout 400s ./gradlew --no-daemon productionSmoke >"build/smoke-logs/$phase.log" 2>&1 &
   pid=$!
-  wait_for_file "$game/cloudnine/smoke/title-ready" 300
+  wait_for_file "$game/cloudnine/smoke/title-ready" 120
 }
 finish() {
   local phase="$1"
