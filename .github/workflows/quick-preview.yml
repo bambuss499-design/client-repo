@@ -1,4 +1,3 @@
-# One-time publication of the already-tested 0.3.0 artifact; no rebuild or game test.
 name: Publish previously tested prototype
 on:
   push:
@@ -12,35 +11,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Publish the successful run's artifact
+      - name: Retrieve the already-tested build
+        uses: actions/download-artifact@v4
+        with:
+          name: cloudnine-1.21.11
+          path: /tmp/cloudnine-out
+          run-id: 43803174622
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+      - name: Publish the artifact
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          exec > >(tee /tmp/quick-publish.log) 2>&1
-          trap 'python3 -c "import pathlib; s=pathlib.Path("/tmp/quick-publish.log").read_text()[-1800:]; print("::error::"+s.replace("%","%25").replace(chr(10),"%0A"))"' ERR
-          set -x
-          gh api "repos/${GH_REPO}/actions/artifacts/14196753073/zip" > /tmp/cloudnine-artifact.zip
-          mkdir -p /tmp/cloudnine-out
-          unzip -q /tmp/cloudnine-artifact.zip -d /tmp/cloudnine-out
           jar=$(find /tmp/cloudnine-out -name 'cloudnine-0.3.0.jar' -type f -print -quit)
-          test -n "$jar"
+          if [[ -z "$jar" ]]; then echo '::error::The test artifact did not contain the expected JAR'; exit 1; fi
           (cd "$(dirname "$jar")" && sha256sum "$(basename "$jar")" > cloudnine-0.3.0.jar.sha256)
-          gh release create cloudnine-preview-02c5408ed4e7 "$jar" "$(dirname "$jar")/cloudnine-0.3.0.jar.sha256" \
+          if ! gh release create cloudnine-preview-02c5408ed4e7 "$jar" "$(dirname "$jar")/cloudnine-0.3.0.jar.sha256" \
             --target 02c5408ed4e7b2cf957207c8a959db80fa56aa86 --prerelease \
             --title 'Cloud Nine 0.3.0 prototype (Minecraft 1.21.11)' \
-            --notes-file - <<'NOTES'
-          **Partial prototype.** Left Alt opens the selector, which lists all seven Drive names.
-          The selected compiled client runs after a restart with Cloud Nine itself absent, and
-          Cloud Nine is restored after that session. CI verified this with a synthetic fixture.
-
-          Dgclient can download its public Aether release on selection (the real client has not
-          yet passed a full test). The other six Drive clients are not bundled or verified.
-          Source ZIPs alone are not executable. Do not use files you do not trust.
-
-          Requires Minecraft Java 1.21.11, Java 21, Fabric Loader 0.19.3 or newer and Fabric API.
-          After selecting, quit, wait at least five seconds, then relaunch. If restoration fails,
-          see the README on this branch for manual recovery.
-          NOTES
+            --notes 'Left Alt and one-session selector removal were tested with a synthetic fixture. Dgclient download is available but not yet fully tested. Other Drive clients are not included. Requires Minecraft 1.21.11, Fabric Loader 0.19.3+, Fabric API and Java 21. Quit, wait five seconds, then restart after selecting. See the README for recovery.' 2> /tmp/release-error; then
+            echo "::error::$(cat /tmp/release-error | tr '\n' ' ')"
+            exit 1
+          fi
