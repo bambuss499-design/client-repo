@@ -5,7 +5,7 @@ set -euo pipefail
 xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' \
   ./gradlew --offline --no-daemon productionSmoke
 for ((i=0; i<150; i++)); do
-  if [[ -f "$CLOUDNINE_SMOKE_DIR/mods/cloudnine-0.3.1.jar" ]] && \
+  if [[ -f "$CLOUDNINE_SMOKE_DIR/mods/cloudnine-test-selector.jar" ]] && \
       ! compgen -G "$CLOUDNINE_SMOKE_DIR/mods/cloudnine-once-*.jar" >/dev/null; then
     exit 0
   fi

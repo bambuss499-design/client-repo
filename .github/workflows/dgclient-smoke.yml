@@ -1,16 +1,17 @@
-name: Test Dgclient in an isolated Minecraft session
+name: Build and test Dgclient source in isolation
 
+# This test downloads and executes third-party build code. Run it deliberately,
+# not on every push or pull request.
 on:
-  push:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  dgclient:
+  dgclient-source:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,27 +21,48 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build test selector and harness
+      - name: Build selector and the standalone source-build test harness
         shell: bash
         run: |
           set -o pipefail
-          if ! ./gradlew --no-daemon clean build remapSmokeHarnessJar fixtureJar 2>&1 | tee /tmp/dg-build.log; then
-            python3 .github/scripts/annotate.py /tmp/dg-build.log 'Dgclient test build failed'
+          if ! ./gradlew --no-daemon clean build remapSmokeHarnessJar fixtureJar prepareSourceBuildSmoke 2>&1 | tee /tmp/dg-selector-build.log; then
+            python3 .github/scripts/annotate.py /tmp/dg-selector-build.log 'Selector build failed'
             exit 1
           fi
       - name: Install virtual display
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libglx-mesa0
-      - name: Create network-isolated game container
+      - name: Create test container
         run: docker build -t cloudnine-dg-smoke -f .github/docker/Dockerfile.smoke .github/docker
-      - name: Select and run the pinned public Dgclient release
+      - name: Build Dgclient from the public pinned source snapshot
+        shell: bash
+        run: |
+          set -o pipefail
+          scratch="$RUNNER_TEMP/cloudnine-dg-source"
+          mkdir -p "$scratch/cp" "$scratch/game"
+          cp build/source-smoke-classpath/* "$scratch/cp/"
+          # Only the harness and a new game directory are mounted: no checkout,
+          # repository token, host home, private Drive files, or Docker socket.
+          if ! timeout 900s docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 512 --memory 6g --user "$(id -u):$(id -g)" \
+              -v "$scratch:/work" -w /work -e HOME=/work \
+              cloudnine-dg-smoke java -cp '/work/cp/*' dev.cloudnine.smoke.SourceBuildSmoke /work/game \
+              2>&1 | tee /tmp/dg-source-build.log; then
+            for log in "$scratch"/game/cloudnine/build-logs/*.log; do
+              if [ -f "$log" ]; then echo "=== $log ===" >> /tmp/dg-source-build.log; tail -180 "$log" >> /tmp/dg-source-build.log; fi
+            done
+            python3 .github/scripts/annotate.py /tmp/dg-source-build.log 'Dgclient source build failed'
+            exit 1
+          fi
+      - name: Launch the source-built client with networking disabled
         env:
           CLOUDNINE_SMOKE_TARGET: dgclient
           CLOUDNINE_SMOKE_DOCKER_IMAGE: cloudnine-dg-smoke
         shell: bash
         run: |
           set -o pipefail
+          export CLOUDNINE_SMOKE_DG_JAR="$RUNNER_TEMP/cloudnine-dg-source/game/cloudnine/clients/Dgclient.jar"
           if ! xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' bash .github/scripts/smoke.sh 2>&1 | tee /tmp/dg-smoke.log; then
             for log in build/smoke-logs/*.log build/production-evidence/latest.log build/production-evidence/handoff.log; do
               if [ -f "$log" ]; then echo "=== $log ===" >> /tmp/dg-smoke.log; tail -160 "$log" >> /tmp/dg-smoke.log; fi
@@ -48,11 +70,18 @@ jobs:
             python3 .github/scripts/annotate.py /tmp/dg-smoke.log 'Dgclient isolated Minecraft test failed'
             exit 1
           fi
+      - name: Collect test logs (no client archives or JARs)
+        if: always()
+        run: |
+          mkdir -p build/dg-source-evidence
+          cp "$RUNNER_TEMP"/cloudnine-dg-source/game/cloudnine/build-logs/*.log build/dg-source-evidence/ 2>/dev/null || true
+          cp /tmp/dg-source-build.log build/dg-source-evidence/container.log 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dgclient-smoke-evidence
+          name: dgclient-source-smoke-evidence
           path: |
+            build/dg-source-evidence/
             build/smoke-logs/
             build/production-evidence/
           if-no-files-found: ignore

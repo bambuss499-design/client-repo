@@ -4,14 +4,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      publish_preview:
-        description: 'Publish a clearly labeled prototype release after all tests pass'
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-and-smoke:
@@ -40,8 +35,8 @@ jobs:
       - name: Upload early build
         uses: actions/upload-artifact@v4
         with:
-          name: cloudnine-0.3.1-early-build
-          path: build/libs/cloudnine-0.3.1.jar
+          name: cloudnine-0.4.0-early-build
+          path: build/libs/cloudnine-0.4.0.jar
           if-no-files-found: error
       - name: Install virtual display and software OpenGL
         run: |
@@ -77,29 +72,3 @@ jobs:
             build/libs/cloudnine-*.jar
             !build/libs/*-sources.jar
           if-no-files-found: error
-      - name: Publish prototype release
-        if: success() && github.event_name == 'workflow_dispatch' && inputs.publish_preview
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="cloudnine-preview-${GITHUB_SHA:0:12}"
-          (cd build/libs && sha256sum cloudnine-0.3.1.jar > cloudnine-0.3.1.jar.sha256)
-          gh release create "$tag" build/libs/cloudnine-0.3.1.jar build/libs/cloudnine-0.3.1.jar.sha256 \
-            --target "$GITHUB_SHA" --prerelease \
-            --title "Cloud Nine 0.3.1 prototype (Minecraft 1.21.11)" \
-            --notes-file - <<'NOTES'
-          **Prototype only.** Dgclient can be downloaded from its published release on selection;
-          the other requested Drive clients are not included.
-
-          Requires Minecraft Java 1.21.11, Java 21, Fabric Loader 0.19.5 or newer, and Fabric API.
-          Put the JAR in your mods folder and press Left Alt. Add trusted compiled Fabric JARs to
-          the library folder. A source ZIP and matching JAR with the same basename appear under the
-          exact ZIP filename; a source ZIP alone cannot be run. Select a JAR, quit, and restart
-          Minecraft after waiting at least five seconds. Cloud Nine is removed from the selected
-          session and restored after that session exits. Dependencies are not installed automatically;
-          existing unrelated mods remain untouched.
-
-          Fabric cannot safely hot-swap arbitrary mods while the game is running. If a selected
-          mod crashes before the return helper starts, see the README for manual recovery. CI tested
-          this remapped JAR in a real production-like Minecraft client using a synthetic fixture over three launches.
-          NOTES

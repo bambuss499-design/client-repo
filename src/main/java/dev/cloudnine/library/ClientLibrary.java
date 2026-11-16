@@ -14,8 +14,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.time.Instant;
 
 /** Owns a library inside a single Minecraft game directory. */
@@ -26,8 +24,11 @@ public final class ClientLibrary {
     private final ManagedFiles managed;
     private final List<String> catalogNames;
     private final SessionSwitch sessionSwitch;
+    private final SourceBuilder sourceBuilder;
     private final List<ManagedFiles.Managed> active = new ArrayList<>();
     private volatile ManagedFiles.Managed pending;
+    private volatile boolean building;
+    private volatile String lastBuildFailure = "";
 
     public ClientLibrary(Path gameDir) throws IOException {
         this(gameDir, DriveCatalog.NAMES, null);
@@ -48,6 +49,7 @@ public final class ClientLibrary {
         sessionSwitch = self == null ? null : new SessionSwitch(this.gameDir, self);
         clientsDir = this.gameDir.resolve("cloudnine").resolve("clients");
         managed = new ManagedFiles(this.gameDir);
+        sourceBuilder = new SourceBuilder(this.gameDir, clientsDir, inspector);
         Files.createDirectories(clientsDir);
         managed.prepareDirectories();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(managed.markers(), "*.properties")) {
@@ -63,8 +65,8 @@ public final class ClientLibrary {
     public Path clientsDir() { return clientsDir; }
 
     public List<LibraryEntry> scan() throws IOException {
-        // A source ZIP or catalog name is a label, not an executable mod. Pair it
-        // only with a unique compiled JAR of the same basename.
+        // A source ZIP is not itself an executable mod. Pair it only with a
+        // unique built JAR of the same basename; source builds are explicit.
         Map<String, List<Path>> archives = new HashMap<>();
         Map<String, List<Path>> jars = new HashMap<>();
         try (DirectoryStream<Path> paths = Files.newDirectoryStream(clientsDir)) {
@@ -101,7 +103,7 @@ public final class ClientLibrary {
                 } else {
                     boolean ambiguous = group.getValue().size() > 1 || candidates.size() > 1;
                     String problem = ambiguous ? "Ambiguous names: rename duplicate files."
-                            : "Source ZIP: add a matching compiled .jar.";
+                            : sourceProblem(label, archive);
                     entries.add(new LibraryEntry(archive, label, "", "", List.of(), problem));
                 }
             }
@@ -114,19 +116,33 @@ public final class ClientLibrary {
         return List.copyOf(entries);
     }
 
-    /** Only an explicitly selected, pinned public release can be downloaded. */
-    public boolean canDownload(LibraryEntry entry) {
-        return isAvailableSource(entry) && DriveCatalog.downloadFor(entry.label())
-                .filter(release -> !Files.exists(clientsDir.resolve(release.fileName()), LinkOption.NOFOLLOW_LINKS))
+    private static String sourceProblem(String label, Path archive) {
+        if ("67Client.zip".equalsIgnoreCase(label)) return "Source not inspected; Drive denied access.";
+        if ("Waterv7.zip".equalsIgnoreCase(label)) return "Inspected source has no build project.";
+        if (DriveCatalog.sourceFor(label).isPresent()) {
+            return Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)
+                    ? "Source ZIP ready for a build attempt." : "Put the source ZIP in the client folder.";
+        }
+        return "Unsupported source ZIP; no build recipe is known.";
+    }
+
+    /** Only the inspected snapshots have build recipes; the Dgclient snapshot can also be downloaded. */
+    public boolean canBuild(LibraryEntry entry) {
+        if (!isAvailableSource(entry)) return false;
+        return DriveCatalog.sourceFor(entry.label()).filter(source ->
+                !Files.exists(clientsDir.resolve(source.jarName()), LinkOption.NOFOLLOW_LINKS)
+                        && (Files.isRegularFile(entry.file(), LinkOption.NOFOLLOW_LINKS)
+                        || (!Files.exists(entry.file(), LinkOption.NOFOLLOW_LINKS) && source.download().isPresent())))
                 .isPresent();
     }
 
-    public boolean canImport(LibraryEntry entry) {
-        return isAvailableSource(entry) && Files.isRegularFile(entry.file(), LinkOption.NOFOLLOW_LINKS)
-                && DriveCatalog.importFor(entry.label())
-                .filter(release -> !Files.exists(clientsDir.resolve(release.fileName()), LinkOption.NOFOLLOW_LINKS))
-                .isPresent();
+    public boolean willDownloadSource(LibraryEntry entry) {
+        return canBuild(entry) && !Files.exists(entry.file(), LinkOption.NOFOLLOW_LINKS);
     }
+
+    public String buildStatus() { return sourceBuilder.status(); }
+    public boolean isBuilding() { return building; }
+    public String lastBuildFailure() { return lastBuildFailure; }
 
     private boolean isAvailableSource(LibraryEntry entry) {
         return !entry.canStage() && entry.problem() != null && !entry.problem().startsWith("Ambiguous")
@@ -134,47 +150,20 @@ public final class ClientLibrary {
                 && entry.file().getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip");
     }
 
-    /** Extract only a specifically identified embedded JAR, never archive paths. */
-    public synchronized void importAndStage(LibraryEntry entry) throws IOException {
-        DriveCatalog.Import release = DriveCatalog.importFor(entry.label())
-                .filter(ignored -> canImport(entry))
-                .orElseThrow(() -> new IOException("No known embedded client is available in this archive."));
-        Path destination = clientsDir.resolve(release.fileName());
-        Path temporary = Files.createTempFile(clientsDir, ".cloudnine-import-", ".tmp");
+    /** Called only after the user explicitly confirms that the third-party build may execute. */
+    public synchronized void buildAndStage(LibraryEntry entry) throws IOException {
+        DriveCatalog.Source source = DriveCatalog.sourceFor(entry.label())
+                .filter(ignored -> canBuild(entry))
+                .orElseThrow(() -> new IOException("No supported source build is available for this entry."));
+        building = true;
+        lastBuildFailure = "";
         try {
-            try (ZipFile archive = new ZipFile(entry.file().toFile())) {
-                ZipEntry member = archive.getEntry(release.member());
-                if (member == null || member.isDirectory() || member.getSize() != release.size()) {
-                    throw new IOException("The archive does not contain the expected Corz client JAR.");
-                }
-                try (var input = archive.getInputStream(member)) {
-                    PinnedDownload.copyVerified(input, temporary, release.size(), release.sha256());
-                }
-            }
-            LibraryEntry checked = inspector.inspect(temporary, release.label());
-            if (!checked.canStage() || !release.modId().equals(checked.modId())) {
-                throw new IOException("The embedded JAR did not contain the expected Fabric mod.");
-            }
-            Files.move(temporary, destination);
-            stage(inspector.inspect(destination, release.label()));
-        } finally { Files.deleteIfExists(temporary); }
-    }
-
-    public synchronized void downloadAndStage(LibraryEntry entry) throws IOException {
-        DriveCatalog.Download release = DriveCatalog.downloadFor(entry.label())
-                .filter(ignored -> canDownload(entry))
-                .orElseThrow(() -> new IOException("No downloadable release is available for this entry."));
-        Path destination = clientsDir.resolve(release.fileName());
-        Path temporary = Files.createTempFile(clientsDir, ".cloudnine-download-", ".tmp");
-        try {
-            PinnedDownload.fetch(release, temporary);
-            LibraryEntry checked = inspector.inspect(temporary, release.label());
-            if (!checked.canStage() || !release.modId().equals(checked.modId())) {
-                throw new IOException("Downloaded release did not contain the expected Fabric mod.");
-            }
-            Files.move(temporary, destination); // Never overwrite a user's file.
-            stage(inspector.inspect(destination, release.label()));
-        } finally { Files.deleteIfExists(temporary); }
+            Path built = sourceBuilder.build(source, entry.file());
+            stage(inspector.inspect(built, entry.label()));
+        } catch (IOException | RuntimeException e) {
+            lastBuildFailure = e.getMessage() == null ? "See cloudnine/build-logs." : e.getMessage();
+            throw e;
+        } finally { building = false; }
     }
 
     public synchronized void stage(LibraryEntry entry) throws IOException {

@@ -40,6 +40,8 @@ dependencies {
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand 'version': project.version }
+    // The selector uses its own wrapper, not a wrapper executable from a source ZIP.
+    from('gradle/wrapper/gradle-wrapper.jar') { into 'cloudnine' }
 }
 
 tasks.withType(JavaCompile).configureEach { options.release = 21 }
@@ -61,6 +63,10 @@ sourceSets {
         compileClasspath += sourceSets.main.compileClasspath
         runtimeClasspath += output + compileClasspath
     }
+    sourceBuildSmoke {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
 }
 
 tasks.register('smokeHarnessJar', Jar) {
@@ -74,6 +80,27 @@ tasks.register('fixtureJar', Jar) {
     archiveFileName = 'Moonlit Fixture.jar'
     destinationDirectory = layout.buildDirectory.dir('smoke')
     from sourceSets.fixture.output
+}
+
+// Minimal standalone harness for testing an actual source build in a container
+// that has no repository checkout, credentials, or user's private archives.
+configurations { sourceSmokeLibraries }
+dependencies {
+    sourceSmokeLibraries "net.fabricmc:fabric-loader:${project.loader_version}"
+    sourceSmokeLibraries 'com.google.code.gson:gson:2.13.2'
+}
+tasks.register('sourceBuildSmokeJar', Jar) {
+    dependsOn tasks.named('sourceBuildSmokeClasses')
+    archiveFileName = 'cloudnine-source-smoke.jar'
+    destinationDirectory = layout.buildDirectory.dir('source-smoke')
+    from sourceSets.main.output
+    from sourceSets.sourceBuildSmoke.output
+}
+tasks.register('prepareSourceBuildSmoke', Copy) {
+    dependsOn tasks.named('sourceBuildSmokeJar')
+    from tasks.named('sourceBuildSmokeJar')
+    from configurations.sourceSmokeLibraries
+    into layout.buildDirectory.dir('source-smoke-classpath')
 }
 
 // Exercise the distributable, not just development classes, using Fabric's production launcher.

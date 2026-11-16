@@ -109,12 +109,22 @@ public final class SmokeHarness implements ClientModInitializer {
                         if (selected == null || !call(selected, "label").equals(expected) || (boolean) call(selected, "canStage")) {
                             throw new IllegalStateException("The source-only catalog entry was not selected");
                         }
-                        if (!dgclient) {
-                            Files.copy(game.resolve("cloudnine/smoke/Moonlit Fixture.jar"),
-                                    game.resolve("cloudnine/clients/Moonlit Fixture.jar"));
-                            click(client.getWindow().handle(), coordinate(screen, "refreshButtonCenterX") * scale, coordinate(screen, "refreshButtonCenterY") * scale);
-                            System.out.println("CLOUDNINE_SMOKE: added compiled fixture and requested refresh");
+                        if (dgclient) {
+                            Object library = field(screen, "library");
+                            boolean canBuild = (boolean) library.getClass().getMethod("canBuild", selected.getClass()).invoke(library, selected);
+                            if (!canBuild) throw new IllegalStateException("Dgclient source build is not offered");
+                            click(client.getWindow().handle(), coordinate(screen, "stageButtonCenterX") * scale, coordinate(screen, "stageButtonCenterY") * scale);
+                            if (field(screen, "confirmingBuild") == null || Boolean.TRUE.equals(field(screen, "staging"))) {
+                                throw new IllegalStateException("Source build did not request confirmation first");
+                            }
                         }
+                    }
+                    if (screenTicks == 25) {
+                        String builtJar = dgclient ? "Dgclient.jar" : "Moonlit Fixture.jar";
+                        Files.copy(game.resolve("cloudnine/smoke").resolve(builtJar),
+                                game.resolve("cloudnine/clients").resolve(builtJar));
+                        click(client.getWindow().handle(), coordinate(screen, "refreshButtonCenterX") * scale, coordinate(screen, "refreshButtonCenterY") * scale);
+                        System.out.println("CLOUDNINE_SMOKE: added the prepared JAR and requested refresh");
                         fixturePrepared = true;
                     }
                     if (screenTicks == 35) {
@@ -122,13 +132,8 @@ public final class SmokeHarness implements ClientModInitializer {
                         System.out.println("CLOUDNINE_SMOKE: paired selection=" + selected);
                         String expected = dgclient ? "Dgclient.zip" : "Moonlit Fixture.zip";
                         if (!fixturePrepared || selected == null || !call(selected, "label").equals(expected)
-                                || (!dgclient && !(boolean) call(selected, "canStage"))) {
-                            throw new IllegalStateException("Selected ZIP name or fixture pairing was lost");
-                        }
-                        if (dgclient) {
-                            Object library = field(screen, "library");
-                            boolean canDownload = (boolean) library.getClass().getMethod("canDownload", selected.getClass()).invoke(library, selected);
-                            if (!canDownload) throw new IllegalStateException("Dgclient release is not offered for download");
+                                || !(boolean) call(selected, "canStage")) {
+                            throw new IllegalStateException("Selected ZIP name or built-JAR pairing was lost");
                         }
                     }
                     if (screenTicks == 45) {

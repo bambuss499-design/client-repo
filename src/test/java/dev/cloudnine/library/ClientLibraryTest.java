@@ -56,35 +56,25 @@ class ClientLibraryTest {
         assertTrue(entries.stream().noneMatch(LibraryEntry::canStage));
     }
 
-    @Test void onlyDgclientOffersItsPinnedPublicRelease() throws Exception {
+    @Test void onlyDgclientOffersASourceBuildInAnEmptyLibrary() throws Exception {
         ClientLibrary library = new ClientLibrary(game);
         List<LibraryEntry> entries = library.scan();
-        assertEquals(List.of("Dgclient.zip"), entries.stream().filter(library::canDownload).map(LibraryEntry::label).toList());
-        Files.writeString(game.resolve("cloudnine/clients/Dgclient.jar"), "existing file");
-        assertTrue(library.scan().stream().noneMatch(library::canDownload));
+        assertEquals(List.of("Dgclient.zip"), entries.stream().filter(library::canBuild).map(LibraryEntry::label).toList());
+        LibraryEntry dg = entries.stream().filter(e -> e.label().equals("Dgclient.zip")).findFirst().orElseThrow();
+        assertTrue(library.willDownloadSource(dg));
+        Files.writeString(game.resolve("cloudnine/clients/Dgclient.jar"), "existing invalid file");
+        assertTrue(library.scan().stream().noneMatch(library::canBuild));
     }
 
-    @Test void corzImportRejectsAnUnexpectedArchiveWithoutOverwritingFiles() throws Exception {
+    @Test void availableLocalBuildRecipesDoNotClaimAllArchivesAreSupported() throws Exception {
         ClientLibrary library = new ClientLibrary(game);
-        Path dir = game.resolve("cloudnine/clients");
-        LibraryEntry missing = library.scan().stream().filter(e -> e.label().equals("CorzClient.zip")).findFirst().orElseThrow();
-        assertFalse(library.canImport(missing));
-        try (ZipOutputStream archive = new ZipOutputStream(Files.newOutputStream(dir.resolve("CorzClient.zip")))) {
-            archive.putNextEntry(new ZipEntry(DriveCatalog.CORZ.member()));
-            archive.write("wrong jar".getBytes(StandardCharsets.UTF_8));
-            archive.closeEntry();
-            archive.putNextEntry(new ZipEntry("../outside.txt"));
-            archive.write("never extracted".getBytes(StandardCharsets.UTF_8));
-            archive.closeEntry();
-        }
-        LibraryEntry entry = library.scan().stream().filter(e -> e.label().equals("CorzClient.zip")).findFirst().orElseThrow();
-        assertTrue(library.canImport(entry));
-        assertThrows(IOException.class, () -> library.importAndStage(entry));
-        assertFalse(Files.exists(dir.resolve("CorzClient.jar")));
-        assertFalse(Files.exists(game.resolve("cloudnine/outside.txt")));
-        try (var files = Files.list(dir)) {
-            assertTrue(files.noneMatch(p -> p.getFileName().toString().startsWith(".cloudnine-import-")));
-        }
+        Path dir = library.clientsDir();
+        for (String name : DriveCatalog.NAMES) Files.writeString(dir.resolve(name), "not an inspected source");
+        List<LibraryEntry> entries = library.scan();
+        assertEquals(List.of("Anubis.zip", "CorzClient.zip", "Dgclient.zip", "Gooba.zip", "Krispy.zip"),
+                entries.stream().filter(library::canBuild).map(LibraryEntry::label).toList());
+        assertTrue(entries.stream().filter(library::canBuild).noneMatch(library::willDownloadSource));
+        assertFalse(library.hasPending());
     }
 
     @Test void catalogNamePairsWithMatchingJarEvenWithoutSourceZip() throws Exception {
@@ -111,7 +101,7 @@ class ClientLibraryTest {
         LibraryEntry entry = library.scan().get(0);
         assertEquals("My Source.ZIP", entry.label());
         assertFalse(entry.canStage());
-        assertTrue(entry.problem().contains("compiled"));
+        assertTrue(entry.problem().contains("Unsupported"));
         assertEquals(archive, entry.file());
         assertThrows(IOException.class, () -> library.stage(entry));
     }

@@ -33,11 +33,13 @@ public final class CloudNineScreen extends Screen {
     private final String startupError;
     private List<LibraryEntry> entries = List.of();
     private LibraryEntry selected;
+    private LibraryEntry confirmingBuild;
     private EditBox search;
     private int offset;
     private String message = "";
     private boolean error;
     private boolean staging;
+    private boolean observedBuild;
 
     private int x, y, panelWidth, panelHeight, leftX, leftWidth, rightX, rightWidth;
     private int listTop, listBottom, rowsTop, stageY, footerY;
@@ -110,6 +112,22 @@ public final class CloudNineScreen extends Screen {
     private int visibleRows() { return Math.max(1, (listBottom - rowsTop - 4) / ROW_HEIGHT); }
 
     @Override
+    public void tick() {
+        super.tick();
+        if (library == null) return;
+        if (library.isBuilding()) observedBuild = true;
+        else if (observedBuild && !staging) {
+            observedBuild = false;
+            reload();
+            if (!library.lastBuildFailure().isEmpty()) {
+                error = true; message = "Build failed: " + library.lastBuildFailure();
+            }
+        }
+    }
+
+    private boolean busy() { return staging || library != null && library.isBuilding(); }
+
+    @Override
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         // All layers are drawn together in render, avoiding vanilla's panorama/blur.
     }
@@ -151,7 +169,7 @@ public final class CloudNineScreen extends Screen {
         if (visible.isEmpty()) {
             String line = entries.isEmpty() ? "A little empty up here." : "No clients match your search.";
             draw(g, clip(line, leftWidth - 24), leftX + 12, rowsTop + 12, TEXT);
-            if (entries.isEmpty()) draw(g, clip("Add ZIPs or compiled JARs.", leftWidth - 24), leftX + 12, rowsTop + 27, MUTED);
+            if (entries.isEmpty()) draw(g, clip("Add source ZIPs to your library.", leftWidth - 24), leftX + 12, rowsTop + 27, MUTED);
         } else {
             for (int i = 0; i < visibleRows() && i + offset < visible.size(); i++) {
                 LibraryEntry entry = visible.get(i + offset);
@@ -164,12 +182,11 @@ public final class CloudNineScreen extends Screen {
                 String initial = entry.label().isBlank() ? "?" : entry.label().substring(0, 1).toUpperCase(Locale.ROOT);
                 draw(g, clip(initial, 8), leftX + 19, rowY + 12, WHITE);
                 draw(g, clip(entry.label(), leftWidth - 57), leftX + 40, rowY + 6, WHITE);
-                boolean downloadable = library != null && library.canDownload(entry);
-                boolean importable = library != null && library.canImport(entry);
-                String sub = !entry.canStage() ? downloadable ? "DOWNLOAD AVAILABLE" : importable ? "IMPORT AVAILABLE" : "NOT READY"
+                boolean buildable = library != null && library.canBuild(entry);
+                String sub = !entry.canStage() ? buildable ? "SOURCE BUILD AVAILABLE" : "NOT READY"
                         : library != null && library.isPending(entry) ? "NEXT LAUNCH"
                         : library != null && library.isActive(entry) ? "ACTIVE THIS SESSION" : "FABRIC  ·  1.21.11";
-                draw(g, clip(sub, leftWidth - 57), leftX + 40, rowY + 19, entry.canStage() || downloadable || importable ? MUTED : AMBER);
+                draw(g, clip(sub, leftWidth - 57), leftX + 40, rowY + 19, entry.canStage() || buildable ? MUTED : AMBER);
             }
             if (visible.size() > visibleRows()) draw(g, "SCROLL", leftX + leftWidth - 44, listBottom - 10, MUTED);
         }
@@ -183,14 +200,19 @@ public final class CloudNineScreen extends Screen {
             centered(g, "to see the details", rightX + rightWidth / 2, y + 120, MUTED);
         } else {
             draw(g, clip(selected.label(), rightWidth - 22), rightX + 11, y + 80, WHITE);
-            boolean downloadable = library != null && library.canDownload(selected);
-            boolean importable = library != null && library.canImport(selected);
-            String status = selected.canStage() ? "READY TO STAGE" : downloadable ? "DOWNLOAD AVAILABLE"
-                    : importable ? "IMPORT AVAILABLE" : "NOT AVAILABLE";
-            draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() || downloadable || importable ? MINT : AMBER);
+            boolean buildable = library != null && library.canBuild(selected);
+            String status = selected.canStage() ? "READY TO STAGE" : buildable ? "SOURCE BUILD AVAILABLE" : "NOT AVAILABLE";
+            draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() || buildable ? MINT : AMBER);
             String detail = selected.canStage() ? "ID: " + selected.modId()
-                    : downloadable ? "Public release, 30 MB" : importable ? "Import the JAR from your ZIP" : selected.problem();
+                    : buildable ? library.willDownloadSource(selected) ? "Downloads source (70 MB)" : "Build from your source ZIP"
+                    : selected.problem();
             draw(g, clip(detail, rightWidth - 22), rightX + 11, y + 110, MUTED);
+            if (buildable) {
+                draw(g, clip("Requires JDK 21 and internet.", rightWidth - 22), rightX + 11, y + 128, TEXT);
+                draw(g, clip("Runs code with your OS permissions.", rightWidth - 22), rightX + 11, y + 142, AMBER);
+                draw(g, clip("Only build source you trust.", rightWidth - 22), rightX + 11, y + 156, AMBER);
+                draw(g, clip("Logs: cloudnine/build-logs", rightWidth - 22), rightX + 11, y + 174, MUTED);
+            }
             if (selected.canStage()) {
                 draw(g, clip("Install required dependencies.", rightWidth - 22), rightX + 11, y + 123, MUTED);
                 if (stageY > y + 205) {
@@ -202,15 +224,17 @@ public final class CloudNineScreen extends Screen {
             }
         }
         boolean canStage = canUseSelected();
-        boolean download = selected != null && library != null && library.canDownload(selected);
-        boolean importable = selected != null && library != null && library.canImport(selected);
+        boolean buildable = selected != null && library != null && library.canBuild(selected);
+        boolean confirmed = selected != null && selected.equals(confirmingBuild);
         button(g, rightX + 10, stageY, rightWidth - 20, 21,
-                staging ? "WORKING..." : download ? "DOWNLOAD & USE" : importable ? "IMPORT & USE" : "USE FOR NEXT LAUNCH",
+                busy() ? "WORKING..." : buildable ? confirmed ? "CONFIRM & BUILD" : "BUILD & USE" : "USE FOR NEXT LAUNCH",
                 mouseX, mouseY, canStage);
 
         g.fill(x + 14, footerY - 6, x + panelWidth - 14, footerY - 5, 0xFF2A3653);
         boolean hasPending = library != null && library.hasPending();
-        String status = error ? message : staging ? "Updating your selection..."
+        String buildStatus = library == null ? "" : library.buildStatus();
+        String status = error ? message : busy() ? buildStatus.isEmpty() ? "Updating your selection..." : buildStatus
+                : confirmingBuild != null ? "Build runs third-party code. Confirm only if you trust it."
                 : hasPending ? "Quit, wait 5 seconds, then relaunch."
                 : library != null && !library.activeLabels().isEmpty() ? "Active this session; clears after exit."
                 : !message.isEmpty() ? message : "One selection. One session. Existing mods stay untouched.";
@@ -227,18 +251,18 @@ public final class CloudNineScreen extends Screen {
         if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             double mx = click.x(), my = click.y();
             if (inside(mx, my, x + panelWidth - 28, y + 14, 15, 15)) { onClose(); return true; }
-            if (inside(mx, my, x + panelWidth - 207, footerY, 50, 16) && library != null && library.hasPending() && !staging) {
+            if (inside(mx, my, x + panelWidth - 207, footerY, 50, 16) && library != null && library.hasPending() && !busy()) {
                 cancelPending();
                 return true;
             }
             if (inside(mx, my, x + panelWidth - 151, footerY, 55, 16)) {
-                error = false; message = ""; reload();
+                confirmingBuild = null; error = false; message = ""; reload();
                 if (!error) message = "Library refreshed.";
                 return true;
             }
             if (inside(mx, my, x + panelWidth - 90, footerY, 76, 16) && library != null) {
                 Util.getPlatform().openFile(library.clientsDir().toFile());
-                message = "Add ZIPs and compiled Fabric JARs, then refresh."; error = false; return true;
+                message = "Add source ZIPs here, then refresh."; error = false; return true;
             }
             if (inside(mx, my, rightX + 10, stageY, rightWidth - 20, 21) && canUseSelected()) {
                 stageSelected();
@@ -248,7 +272,9 @@ public final class CloudNineScreen extends Screen {
             if (inside(mx, my, leftX + 6, rowsTop, leftWidth - 12, listBottom - rowsTop)) {
                 int row = (int) ((my - rowsTop) / ROW_HEIGHT);
                 if (row >= 0 && row < visibleRows() && row + offset < visible.size()) {
-                    selected = visible.get(row + offset); return true;
+                    LibraryEntry next = visible.get(row + offset);
+                    if (!next.equals(selected)) confirmingBuild = null;
+                    selected = next; return true;
                 }
             }
         }
@@ -284,17 +310,24 @@ public final class CloudNineScreen extends Screen {
     }
 
     private boolean canUseSelected() {
-        return selected != null && library != null && !staging && (selected.canStage() || library.canDownload(selected) || library.canImport(selected));
+        return selected != null && library != null && !busy() && (selected.canStage() || library.canBuild(selected));
     }
 
     private void stageSelected() {
         LibraryEntry choice = selected;
+        boolean build = library.canBuild(choice);
+        if (build && !choice.equals(confirmingBuild)) {
+            confirmingBuild = choice;
+            error = false;
+            message = "Build runs third-party code. Confirm only if you trust it.";
+            return;
+        }
+        confirmingBuild = null;
         staging = true;
         error = false;
         CompletableFuture.runAsync(() -> {
             try {
-                if (library.canDownload(choice)) library.downloadAndStage(choice);
-                else if (library.canImport(choice)) library.importAndStage(choice);
+                if (build) library.buildAndStage(choice);
                 else library.stage(choice);
             } catch (IOException e) { throw new CompletionException(e); }
         }).whenComplete((ignored, failure) -> {
@@ -308,7 +341,7 @@ public final class CloudNineScreen extends Screen {
                 }
                 else {
                     Throwable cause = failure.getCause() == null ? failure : failure.getCause();
-                    message = "Could not stage: " + cause.getMessage(); error = true;
+                    message = (build ? "Build failed: " : "Could not stage: ") + cause.getMessage(); error = true;
                 }
             });
         });
@@ -322,7 +355,9 @@ public final class CloudNineScreen extends Screen {
             if (!visible.isEmpty()) {
                 int current = selected == null ? -1 : visible.indexOf(selected);
                 int next = Math.max(0, Math.min(visible.size() - 1, current + (event.key() == GLFW.GLFW_KEY_DOWN ? 1 : -1)));
-                selected = visible.get(next);
+                LibraryEntry nextEntry = visible.get(next);
+                if (!nextEntry.equals(selected)) confirmingBuild = null;
+                selected = nextEntry;
                 offset = Math.max(0, Math.min(offset, next));
                 if (next >= offset + visibleRows()) offset = next - visibleRows() + 1;
             }
