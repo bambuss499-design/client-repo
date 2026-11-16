@@ -1,6 +1,7 @@
 package dev.cloudnine.smoke;
 
 import dev.cloudnine.client.CloudNineScreen;
+import dev.cloudnine.library.LibraryEntry;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
@@ -92,7 +93,9 @@ public final class SmokeHarness implements ClientModInitializer {
                         System.out.println("CLOUDNINE_SMOKE: loader game=" + game + " minecraft game=" + client.gameDirectory
                                 + " fixture exists=" + Files.exists(game.resolve("cloudnine/clients/Moonlit Fixture.jar")));
                         System.out.println("CLOUDNINE_SMOKE: selection=" + selected);
-                        if (selected == null) throw new IllegalStateException("Fixture row click did not select an entry");
+                        if (!(selected instanceof LibraryEntry entry) || !entry.label().equals("Moonlit Fixture.zip")) {
+                            throw new IllegalStateException("Fixture row did not preserve and select the source ZIP name");
+                        }
                     }
                     if (screenTicks == 45) {
                         click(client.getWindow().handle(), screen.stageButtonCenterX() * scale, screen.stageButtonCenterY() * scale);

@@ -88,8 +88,12 @@ public final class CloudNineScreen extends Screen {
         try {
             entries = library.scan();
             if (selected != null) {
-                String name = selected.file().getFileName().toString();
-                selected = entries.stream().filter(entry -> entry.file().getFileName().toString().equals(name)).findFirst().orElse(null);
+                LibraryEntry previous = selected;
+                List<LibraryEntry> sameLabel = entries.stream().filter(entry -> entry.label().equals(previous.label())).toList();
+                // A ZIP-only entry can become a ZIP/JAR pair after refresh. Preserve
+                // it by its exact label only when that label is unambiguous.
+                selected = sameLabel.size() == 1 ? sameLabel.get(0) : sameLabel.stream()
+                        .filter(entry -> entry.file().equals(previous.file())).findFirst().orElse(null);
             }
             offset = Math.min(offset, Math.max(0, visibleEntries().size() - visibleRows()));
         } catch (IOException e) {
@@ -147,7 +151,7 @@ public final class CloudNineScreen extends Screen {
         if (visible.isEmpty()) {
             String line = entries.isEmpty() ? "A little empty up here." : "No clients match your search.";
             draw(g, clip(line, leftWidth - 24), leftX + 12, rowsTop + 12, TEXT);
-            if (entries.isEmpty()) draw(g, clip("Add .jar files to your library.", leftWidth - 24), leftX + 12, rowsTop + 27, MUTED);
+            if (entries.isEmpty()) draw(g, clip("Add ZIPs or compiled JARs.", leftWidth - 24), leftX + 12, rowsTop + 27, MUTED);
         } else {
             for (int i = 0; i < visibleRows() && i + offset < visible.size(); i++) {
                 LibraryEntry entry = visible.get(i + offset);
@@ -217,11 +221,13 @@ public final class CloudNineScreen extends Screen {
                 return true;
             }
             if (inside(mx, my, x + panelWidth - 151, footerY, 55, 16)) {
-                reload(); message = "Library refreshed."; error = false; return true;
+                error = false; message = ""; reload();
+                if (!error) message = "Library refreshed.";
+                return true;
             }
             if (inside(mx, my, x + panelWidth - 90, footerY, 76, 16) && library != null) {
                 Util.getPlatform().openFile(library.clientsDir().toFile());
-                message = "Add compiled Fabric JARs, then refresh."; error = false; return true;
+                message = "Add ZIPs and compiled Fabric JARs, then refresh."; error = false; return true;
             }
             if (inside(mx, my, rightX + 10, stageY, rightWidth - 20, 21) && selected != null && selected.canStage() && library != null && !staging) {
                 stageSelected();

@@ -1,6 +1,7 @@
 package dev.cloudnine.library;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -39,7 +40,6 @@ class ClientLibraryTest {
     @Test void sortsAndNamesEntriesFromFilesAndRejectsWrongVersion() throws Exception {
         jar("Zeta Client.jar", metadata("zeta_client", "1.21.11"));
         jar("Alpha Client.jar", metadata("alpha_client", "1.20.1"));
-        Files.writeString(game.resolve("cloudnine/clients/source.zip"), "not a jar");
         ClientLibrary library = new ClientLibrary(game);
         List<LibraryEntry> entries = library.scan();
         assertEquals(List.of("Alpha Client", "Zeta Client"), entries.stream().map(LibraryEntry::label).toList());
@@ -47,6 +47,56 @@ class ClientLibraryTest {
         assertTrue(entries.get(0).problem().contains("1.21.11"));
         assertTrue(entries.get(1).canStage());
         assertEquals(List.of("fabric-api"), entries.get(1).dependencies());
+    }
+
+    @Test void sourceArchiveIsListedByExactNameButCannotBeExecuted() throws Exception {
+        Path dir = game.resolve("cloudnine/clients");
+        Files.createDirectories(dir);
+        Path archive = Files.writeString(dir.resolve("My Source.ZIP"), "untrusted archive, never opened");
+        ClientLibrary library = new ClientLibrary(game);
+        LibraryEntry entry = library.scan().get(0);
+        assertEquals("My Source.ZIP", entry.label());
+        assertFalse(entry.canStage());
+        assertTrue(entry.problem().contains("compiled"));
+        assertEquals(archive, entry.file());
+        assertThrows(IOException.class, () -> library.stage(entry));
+    }
+
+    @Test void matchingCompiledJarUsesAndRetainsTheZipName() throws Exception {
+        Path jar = jar("anubis.jar", metadata("anubis", "1.21.11"));
+        Files.writeString(game.resolve("cloudnine/clients/Anubis.zip"), "source archive");
+        ClientLibrary library = new ClientLibrary(game);
+        List<LibraryEntry> entries = library.scan();
+        assertEquals(1, entries.size());
+        LibraryEntry entry = entries.get(0);
+        assertEquals("Anubis.zip", entry.label());
+        assertEquals(jar, entry.file());
+        assertTrue(entry.canStage());
+        library.stage(entry);
+        assertEquals("Anubis.zip", library.pendingLabel());
+        assertTrue(library.isPending(library.scan().get(0)));
+        library.cancelPending();
+    }
+
+    @Test void ambiguousCaseInsensitivePairsNeverChooseAnArbitraryJar() throws Exception {
+        Path first = jar("Foo.jar", metadata("foo_one", "1.21.11"));
+        Path second = jar("foo.JAR", metadata("foo_two", "1.21.11"));
+        Assumptions.assumeFalse(Files.isSameFile(first, second), "Requires a case-sensitive filesystem");
+        Files.writeString(game.resolve("cloudnine/clients/Foo.zip"), "source archive");
+        List<LibraryEntry> entries = new ClientLibrary(game).scan();
+        LibraryEntry source = entries.stream().filter(entry -> entry.label().equals("Foo.zip")).findFirst().orElseThrow();
+        assertFalse(source.canStage());
+        assertTrue(source.problem().contains("Ambiguous"));
+        assertEquals(3, entries.size());
+    }
+
+    @Test void pairedJarStillRequiresCompatibleFabricMetadata() throws Exception {
+        jar("Old.jar", metadata("old_client", "1.20.1"));
+        Files.writeString(game.resolve("cloudnine/clients/Old.zip"), "source archive");
+        LibraryEntry entry = new ClientLibrary(game).scan().get(0);
+        assertEquals("Old.zip", entry.label());
+        assertFalse(entry.canStage());
+        assertTrue(entry.problem().contains("1.21.11"));
     }
 
     @Test void rejectsMissingMetadataServerOnlyAndSelectorItself() throws Exception {
