@@ -4,12 +4,48 @@ name: Build and test Dgclient source in isolation
 # not on every push or pull request.
 on:
   workflow_dispatch:
+    inputs:
+      inspect_run_id:
+        description: 'Optional previous Dgclient run ID: inspect crash evidence only'
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  inspect-evidence:
+    if: inputs.inspect_run_id != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dgclient-source-smoke-evidence
+          run-id: ${{ inputs.inspect_run_id }}
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Surface crash causes without rerunning the client
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          reports = list(pathlib.Path('evidence').rglob('crash-*.txt'))
+          logs = list(pathlib.Path('evidence').rglob('loaded.log'))
+          for path in reports + logs:
+              lines = path.read_text(encoding='utf-8', errors='replace').splitlines()
+              matches = [i for i, line in enumerate(lines) if any(term in line for term in
+                         ('Caused by:', 'Exception in thread', 'Could not execute entrypoint', 'ClassNotFoundException', 'NoClassDefFoundError'))]
+              chosen = []
+              for i in matches:
+                  if any(term in lines[i] for term in ('authlib', 'UnknownHostException')): continue
+                  chosen.extend(lines[max(0, i - 4):min(len(lines), i + 15)])
+              text = ('\\n'.join(chosen[:120]) or 'No matching cause found.')[:20000]
+              escaped = text.replace('%', '%25').replace('\\r', '%0D').replace('\\n', '%0A')
+              print(f'::notice title={path.name}::{escaped}')
+          if not reports and not logs: print('::notice::No crash report or loaded log was retained.')
+          PY
   dgclient-source:
+    if: inputs.inspect_run_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
