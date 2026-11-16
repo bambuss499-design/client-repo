@@ -19,6 +19,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee /tmp/quick-publish.log) 2>&1
+          trap 'python3 -c "import pathlib; s=pathlib.Path("/tmp/quick-publish.log").read_text()[-1800:]; print("::error::"+s.replace("%","%25").replace(chr(10),"%0A"))"' ERR
+          set -x
           gh api "repos/${GH_REPO}/actions/artifacts/14196753073/zip" > /tmp/cloudnine-artifact.zip
           mkdir -p /tmp/cloudnine-out
           unzip -q /tmp/cloudnine-artifact.zip -d /tmp/cloudnine-out
