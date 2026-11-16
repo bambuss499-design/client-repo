@@ -8,6 +8,7 @@ export ALSOFT_DRIVERS=null
 game=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cloudnine-smoke-XXXXXX")
 export CLOUDNINE_SMOKE_DIR="$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
+cp 'build/libs/cloudnine-0.3.0.jar' "$game/mods/cloudnine-0.3.0.jar"
 cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/smoke/Moonlit Fixture.jar"
 python3 - "$game/cloudnine/clients/Moonlit Fixture.zip" <<'PYCODE'
 import sys, zipfile
@@ -20,7 +21,7 @@ pid=''
 cleanup() {
   if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
   mkdir -p build/production-evidence
-  for path in screenshots crash-reports options.txt cloudnine/cleanup.log logs/latest.log; do
+  for path in screenshots crash-reports options.txt cloudnine/cleanup.log cloudnine/handoff.log logs/latest.log; do
     if [[ -e "$game/$path" ]]; then cp -a "$game/$path" build/production-evidence/ || true; fi
   done
   rm -rf "$game"
@@ -63,18 +64,32 @@ finish stage
 test -f "$game/screenshots/cloudnine-smoke.png"
 cp "$game/screenshots/cloudnine-smoke.png" build/cloudnine-screen.png
 
-launch loaded
-finish loaded
-for ((i=0; i<100; i++)); do
-  if ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null; then break; fi
+# The independent helper must move the selector out of mods and activate the
+# chosen client plus the temporary return guard only after this JVM exits.
+for ((i=0; i<150; i++)); do
+  if [[ ! -f "$game/mods/cloudnine-0.3.0.jar" ]] && compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+      && compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then break; fi
   sleep 0.2
 done
-if compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null; then
-  echo 'One-shot cleanup did not remove the managed JAR after the game exited'
-  cat "$game/cloudnine/cleanup.log" || true
+if [[ -f "$game/mods/cloudnine-0.3.0.jar" ]] || ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+    || ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
+  echo 'One-session handoff did not prepare correctly'; cat "$game/cloudnine/handoff.log" || true; exit 1
+fi
+
+launch loaded
+finish loaded
+for ((i=0; i<150; i++)); do
+  if [[ -f "$game/mods/cloudnine-0.3.0.jar" ]] && ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+      && ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then break; fi
+  sleep 0.2
+done
+if [[ ! -f "$game/mods/cloudnine-0.3.0.jar" ]] || compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+    || compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
+  echo 'One-shot handoff did not restore the selector after the game exited'
+  cat "$game/cloudnine/handoff.log" || true
   exit 1
 fi
 
 launch empty
 finish empty
-echo 'PASS: Left Alt opened the GUI; selected fixture loaded for one session only.'
+echo 'PASS: Left Alt opened the GUI; fixture loaded without Cloud Nine, which was then restored.'

@@ -7,6 +7,8 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.metadata.ModOrigin;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.input.KeyEvent;
@@ -31,7 +33,11 @@ public final class CloudNineClient implements ClientModInitializer {
                 "key.cloudnine.open_left", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_ALT,
                 KeyMapping.Category.register(Identifier.fromNamespaceAndPath("cloudnine", "main"))));
         try {
-            library = new ClientLibrary(Minecraft.getInstance().gameDirectory.toPath());
+            var origin = FabricLoader.getInstance().getModContainer("cloudnine").orElseThrow().getOrigin();
+            if (origin.getKind() != ModOrigin.Kind.PATH || origin.getPaths().size() != 1) {
+                throw new IOException("Cloud Nine must be installed as a JAR in the mods folder.");
+            }
+            library = new ClientLibrary(Minecraft.getInstance().gameDirectory.toPath(), origin.getPaths().get(0));
             library.scheduleOneSessionCleanup();
         } catch (IOException | RuntimeException e) {
             startupError = "Library or cleanup unavailable: " + e.getMessage();

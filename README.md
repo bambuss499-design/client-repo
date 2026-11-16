@@ -11,8 +11,8 @@ A celestial, restart-based client library for **Minecraft Java 1.21.11 / Fabric*
 1. Install Minecraft Java **1.21.11**, Fabric Loader **0.19.3+**, and a matching **Fabric API**. Java 21 is required.
 2. Put the Cloud Nine JAR in that installation's `mods` folder. Start Minecraft once.
 3. Press **Left Alt**, then **OPEN FOLDER**. The seven Drive filenames are listed automatically, but the clients are not included yet. To make an entry usable, put a trusted, compiled **Fabric 1.21.11** JAR with the matching basename in the folder (for example `Anubis.jar`) and press **REFRESH**. A ZIP or catalog name without a matching JAR is shown as unavailable. Cloud Nine never executes or builds source archives. Standalone JARs and other source ZIPs also appear in the library.
-4. Select a client, press **USE FOR NEXT LAUNCH**, and wait for the restart confirmation. Quit Minecraft, then start the same installation again. Cloud Nine stages only that selected JAR; it does **not** install its dependencies. Check its requirements and install those separately.
-5. The selected copy is meant for one session. A small local Java cleanup helper waits for Minecraft to exit and deletes only Cloud Nine's own unchanged copy. Wait a few seconds before the following launch. The original library JAR is never removed.
+4. Select a ready client, press **USE FOR NEXT LAUNCH**, and wait for confirmation. Quit Minecraft, wait at least five seconds, then start the same installation again. Cloud Nine moves its own selector JAR out of `mods` after exit; Fabric loads the selected client and a small return helper instead. Cloud Nine does **not** install the client's dependencies.
+5. Quit the selected-client session. The return helper restores Cloud Nine and removes the unchanged selected copy after Minecraft exits. Wait at least five seconds before launching again. The original library JAR is never removed.
 
 Cloud Nine **does not hot-load or unload Fabric or running mods** and does not restart the game itself. Fabric discovers mods at startup. Metadata checks are only a preliminary filter: compatibility, dependencies, licensing, and code safety are **not guaranteed**. A mod can run arbitrary code, so use only files you trust.
 
@@ -20,7 +20,7 @@ Other mods already in `mods` are deliberately **left untouched** and remain load
 
 ### Recovery
 
-If a selected JAR crashes Fabric before Cloud Nine starts, or if a launcher forcibly terminates the cleanup helper, the one-session copy can remain. With Minecraft closed, open that installation's `mods` folder and remove the file named `cloudnine-once-<UUID>.jar`. Do not remove your other mods or the original in `cloudnine/clients`. Cloud Nine never deletes a managed JAR if its saved checksum has changed. If your launcher keeps a lock on the file, close the launcher before removing it.
+If Fabric fails before the return helper starts, or the launcher kills the helper, the automatic return may not run. Close Minecraft and the launcher. In that profile's `mods` folder remove only `cloudnine-once-<UUID>.jar` and `cloudnine-return-<UUID>.jar` for the affected selection. In `cloudnine/handoff`, move `disabled-<UUID>.jar.off` back to `mods` and rename it `cloudnine-restored.jar` **only if there is no other Cloud Nine JAR there**. The original filename is recorded as `mainName` in `cloudnine/handoff/next.properties`. Keep your other mods and the original `cloudnine/clients` JAR untouched. If files have been changed or you are unsure, do not overwrite them; check `cloudnine/handoff.log` first.
 
 ## Build and test
 
@@ -28,7 +28,7 @@ If a selected JAR crashes Fabric before Cloud Nine starts, or if a launcher forc
 ./gradlew build
 ```
 
-The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Left Alt and mouse events through Minecraft's GLFW callbacks, selects a ZIP-only fixture, adds its compiled JAR, refreshes while keeping the ZIP name selected, then stages it through the UI and relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
+The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Left Alt and mouse events through Minecraft's GLFW callbacks, checks the seven catalog names, selects a synthetic fixture and stages it through the UI. It verifies that the selected fixture loads **without Cloud Nine** in the second launch and that Cloud Nine returns without the fixture in a third launch. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
 
 ## Privacy and storage
 

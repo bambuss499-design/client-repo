@@ -190,7 +190,7 @@ public final class CloudNineScreen extends Screen {
                     rounded(g, rightX + 10, y + 143, rightWidth - 20, 61, 6, 0xA3263250);
                     draw(g, clip("ONE SESSION, YOUR WAY", rightWidth - 36), rightX + 18, y + 153, LAVENDER);
                     draw(g, clip("1  Select a trusted client", rightWidth - 36), rightX + 18, y + 170, TEXT);
-                    draw(g, clip("2  Restart Minecraft to use it", rightWidth - 36), rightX + 18, y + 184, TEXT);
+                    draw(g, clip("2  Quit, wait 5s, then relaunch", rightWidth - 36), rightX + 18, y + 184, TEXT);
                 }
             }
         }
@@ -200,7 +200,7 @@ public final class CloudNineScreen extends Screen {
         g.fill(x + 14, footerY - 6, x + panelWidth - 14, footerY - 5, 0xFF2A3653);
         boolean hasPending = library != null && library.hasPending();
         String status = error ? message : staging ? "Updating your selection..."
-                : hasPending ? "Restart to use " + library.pendingLabel() + " once."
+                : hasPending ? "Quit, wait 5 seconds, then relaunch."
                 : library != null && !library.activeLabels().isEmpty() ? "Active this session; clears after exit."
                 : !message.isEmpty() ? message : "One selection. One session. Existing mods stay untouched.";
         int reserved = hasPending ? 211 : 155;
@@ -283,7 +283,7 @@ public final class CloudNineScreen extends Screen {
             if (minecraft == null) return;
             minecraft.execute(() -> {
                 staging = false;
-                if (failure == null) { message = "Restart Minecraft to use your selection once."; error = false; }
+                if (failure == null) { message = "Quit, wait 5 seconds, then relaunch your selected client."; error = false; }
                 else {
                     Throwable cause = failure.getCause() == null ? failure : failure.getCause();
                     message = "Could not stage: " + cause.getMessage(); error = true;

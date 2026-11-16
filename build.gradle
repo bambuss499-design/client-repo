@@ -85,7 +85,9 @@ tasks.register('remapSmokeHarnessJar', net.fabricmc.loom.task.RemapJarTask) {
     addNestedDependencies = false
 }
 tasks.register('productionSmoke', net.fabricmc.loom.task.prod.ClientProductionRunTask) {
-    mods.from tasks.named('remapSmokeHarnessJar')
+    // Exercise the normal mods folder: the selector must actually disappear in
+    // the selected-client launch, not be injected through fabric.addMods.
+    mods.setFrom(configurations.productionRuntimeMods, tasks.named('remapSmokeHarnessJar'))
     runDir = file(System.getenv('CLOUDNINE_SMOKE_DIR') ?: 'run/cloudnine-ci')
     useXVFB = false // CI supplies one X server for the entire three-launch scenario.
     programArgs.addAll('--username', 'CloudNineCI', '--uuid', '00000000-0000-4000-8000-000000000001',

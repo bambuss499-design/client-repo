@@ -22,16 +22,27 @@ public final class ClientLibrary {
     private final JarInspector inspector = new JarInspector();
     private final ManagedFiles managed;
     private final List<String> catalogNames;
+    private final SessionSwitch sessionSwitch;
     private final List<ManagedFiles.Managed> active = new ArrayList<>();
     private volatile ManagedFiles.Managed pending;
 
     public ClientLibrary(Path gameDir) throws IOException {
-        this(gameDir, DriveCatalog.NAMES);
+        this(gameDir, DriveCatalog.NAMES, null);
+    }
+
+    /** Production install: self is the selector's installed JAR in the game's mods folder. */
+    public ClientLibrary(Path gameDir, Path self) throws IOException {
+        this(gameDir, DriveCatalog.NAMES, self);
     }
 
     ClientLibrary(Path gameDir, List<String> catalogNames) throws IOException {
+        this(gameDir, catalogNames, null);
+    }
+
+    private ClientLibrary(Path gameDir, List<String> catalogNames, Path self) throws IOException {
         this.gameDir = gameDir.toAbsolutePath().normalize();
         this.catalogNames = List.copyOf(catalogNames);
+        sessionSwitch = self == null ? null : new SessionSwitch(this.gameDir, self);
         clientsDir = this.gameDir.resolve("cloudnine").resolve("clients");
         managed = new ManagedFiles(this.gameDir);
         Files.createDirectories(clientsDir);
@@ -40,7 +51,7 @@ public final class ClientLibrary {
             for (Path path : stream) {
                 String name = path.getFileName().toString();
                 String id = name.substring(0, name.length() - ".properties".length());
-                try { managed.readOwned(id).ifPresent(active::add); }
+                try { managed.readOwned(id).filter(item -> item.file().getParent().equals(this.gameDir.resolve("mods"))).ifPresent(active::add); }
                 catch (IOException ignored) { /* A damaged marker is never authority to delete a file. */ }
             }
         }
@@ -110,12 +121,21 @@ public final class ClientLibrary {
         if (!checked.canStage()) throw new IOException(checked.problem());
         ManagedFiles.Managed replacement = managed.stage(checked, inspector);
         try {
-            if (pending != null) managed.deleteOwned(pending.id());
-        } catch (IOException e) {
+            if (sessionSwitch != null) replacement = managed.hold(replacement.id());
+            if (pending != null) {
+                managed.deleteOwned(pending.id());
+                if (sessionSwitch != null) sessionSwitch.disarm(pending.id());
+                pending = null;
+            }
+            if (sessionSwitch != null) sessionSwitch.arm(replacement);
+            pending = replacement;
+        } catch (IOException | RuntimeException e) {
             try { managed.deleteOwned(replacement.id()); } catch (IOException ignored) { }
-            throw new IOException("Could not replace the previous selection; it was left intact.", e);
+            // The old selection is retained only if its deletion failed; otherwise
+            // no pending selection is reported after a failed replacement.
+            if (pending != null && managed.readOwned(pending.id()).isEmpty()) pending = null;
+            throw new IOException("Could not prepare the client switch: " + e.getMessage(), e);
         }
-        pending = replacement;
     }
 
     public boolean hasPending() { return pending != null; }
@@ -134,8 +154,10 @@ public final class ClientLibrary {
 
     public synchronized void cancelPending() throws IOException {
         if (pending != null) {
-            managed.deleteOwned(pending.id());
+            ManagedFiles.Managed canceled = pending;
+            managed.deleteOwned(canceled.id());
             pending = null;
+            if (sessionSwitch != null) sessionSwitch.disarm(canceled.id());
         }
     }
 

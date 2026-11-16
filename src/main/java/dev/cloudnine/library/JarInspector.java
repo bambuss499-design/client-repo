@@ -47,7 +47,7 @@ public final class JarInspector {
             if (!id.matches("[a-z][a-z0-9_-]{1,63}")) {
                 return invalid(path, label, "Missing or invalid Fabric mod ID.");
             }
-            if ("cloudnine".equals(id)) {
+            if ("cloudnine".equals(id) || "cloudnine_return".equals(id)) {
                 return invalid(path, label, "Cloud Nine cannot select a second copy of itself.");
             }
             if ("server".equals(string(json, "environment", "*"))) {

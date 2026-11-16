@@ -1,7 +1,5 @@
 package dev.cloudnine.smoke;
 
-import dev.cloudnine.client.CloudNineScreen;
-import dev.cloudnine.library.LibraryEntry;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
@@ -36,7 +34,7 @@ public final class SmokeHarness implements ClientModInitializer {
         Path game = FabricLoader.getInstance().getGameDir();
         Path output = game.resolve("cloudnine/smoke");
         ScreenEvents.BEFORE_INIT.register((client, screen, width, height) -> {
-            if (screen instanceof CloudNineScreen) {
+            if (isSelector(screen)) {
                 ScreenMouseEvents.beforeMouseClick(screen).register((ignored, click) ->
                         System.out.println("CLOUDNINE_SMOKE: mouse event x=" + click.x() + " y=" + click.y() + " button=" + click.button()));
             }
@@ -69,48 +67,55 @@ public final class SmokeHarness implements ClientModInitializer {
                         if (!FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
                             throw new IllegalStateException("Selected fixture did not initialize");
                         }
+                        if (FabricLoader.getInstance().isModLoaded("cloudnine") || !FabricLoader.getInstance().isModLoaded("cloudnine_return")) {
+                            throw new IllegalStateException("Selector must be unloaded and return helper present in selected session");
+                        }
                         Files.writeString(output.resolve("loaded"), "Fabric loaded the selected fixture\n");
                         exitCountdown = 40;
                     }
                     if (exitCountdown < 0 && phase.equals("empty")) {
-                        if (FabricLoader.getInstance().isModLoaded("cloudninefixture")) throw new IllegalStateException("Fixture was not one-shot");
+                        if (FabricLoader.getInstance().isModLoaded("cloudninefixture") || FabricLoader.getInstance().isModLoaded("cloudnine_return")
+                                || !FabricLoader.getInstance().isModLoaded("cloudnine")) {
+                            throw new IllegalStateException("Selector was not restored without the fixture and return helper");
+                        }
                         Files.writeString(output.resolve("empty"), "Fixture absent on subsequent launch\n");
                         exitCountdown = 40;
                     }
                 }
-                if (phase.equals("stage") && client.getOverlay() == null && client.screen instanceof CloudNineScreen screen) {
+                if (phase.equals("stage") && client.getOverlay() == null && isSelector(client.screen)) {
+                    var screen = client.screen;
                     screenTicks++;
                     double scale = client.getWindow().getGuiScale();
                     if (screenTicks == 5) {
-                        @SuppressWarnings("unchecked")
-                        var entries = (java.util.List<LibraryEntry>) field(screen, "entries");
-                        var labels = entries.stream().map(LibraryEntry::label).toList();
+                        var entries = (java.util.List<?>) field(screen, "entries");
+                        var labels = new java.util.ArrayList<String>();
+                        for (Object entry : entries) labels.add((String) call(entry, "label"));
                         var expected = java.util.List.of("67Client.zip", "Anubis.zip", "CorzClient.zip", "Dgclient.zip", "Gooba.zip", "Krispy.zip", "Waterv7.zip");
                         if (!labels.containsAll(expected)) throw new IllegalStateException("Drive catalog missing entries: " + labels);
                         // Filter for the synthetic fixture; the row and buttons are still driven by GLFW.
                         ((EditBox) field(screen, "search")).setValue("Moonlit");
                     }
                     if (screenTicks == 10) {
-                        click(client.getWindow().handle(), screen.firstRowCenterX() * scale, screen.firstRowCenterY() * scale);
-                        System.out.println("CLOUDNINE_SMOKE: requested row click at " + screen.firstRowCenterX() + "," + screen.firstRowCenterY() + " scale=" + scale);
+                        click(client.getWindow().handle(), coordinate(screen, "firstRowCenterX") * scale, coordinate(screen, "firstRowCenterY") * scale);
+                        System.out.println("CLOUDNINE_SMOKE: requested row click at " + coordinate(screen, "firstRowCenterX") + "," + coordinate(screen, "firstRowCenterY") + " scale=" + scale);
                     }
                     if (screenTicks == 20) {
                         Object selected = field(screen, "selected");
                         System.out.println("CLOUDNINE_SMOKE: source selection=" + selected);
-                        if (!(selected instanceof LibraryEntry entry) || !entry.label().equals("Moonlit Fixture.zip") || entry.canStage()) {
+                        if (selected == null || !call(selected, "label").equals("Moonlit Fixture.zip") || (boolean) call(selected, "canStage")) {
                             throw new IllegalStateException("A source ZIP alone must be selected but not executable");
                         }
                         Files.copy(game.resolve("cloudnine/smoke/Moonlit Fixture.jar"),
                                 game.resolve("cloudnine/clients/Moonlit Fixture.jar"));
-                        click(client.getWindow().handle(), screen.refreshButtonCenterX() * scale, screen.refreshButtonCenterY() * scale);
+                        click(client.getWindow().handle(), coordinate(screen, "refreshButtonCenterX") * scale, coordinate(screen, "refreshButtonCenterY") * scale);
                         System.out.println("CLOUDNINE_SMOKE: added compiled fixture and requested refresh");
                         fixturePrepared = true;
                     }
                     if (screenTicks == 35) {
                         Object selected = field(screen, "selected");
                         System.out.println("CLOUDNINE_SMOKE: paired selection=" + selected);
-                        if (!fixturePrepared || !(selected instanceof LibraryEntry entry)
-                                || !entry.label().equals("Moonlit Fixture.zip") || !entry.canStage()) {
+                        if (!fixturePrepared || selected == null
+                                || !call(selected, "label").equals("Moonlit Fixture.zip") || !(boolean) call(selected, "canStage")) {
                             throw new IllegalStateException("Refresh did not preserve the selected ZIP name and pair the fixture JAR");
                         }
                     }
@@ -119,20 +124,15 @@ public final class SmokeHarness implements ClientModInitializer {
                                 result -> System.out.println("CLOUDNINE_SMOKE paired screenshot: " + result.getString()));
                     }
                     if (screenTicks == 55) {
-                        click(client.getWindow().handle(), screen.stageButtonCenterX() * scale, screen.stageButtonCenterY() * scale);
-                        System.out.println("CLOUDNINE_SMOKE: requested stage click at " + screen.stageButtonCenterX() + "," + screen.stageButtonCenterY());
+                        click(client.getWindow().handle(), coordinate(screen, "stageButtonCenterX") * scale, coordinate(screen, "stageButtonCenterY") * scale);
+                        System.out.println("CLOUDNINE_SMOKE: requested stage click at " + coordinate(screen, "stageButtonCenterX") + "," + coordinate(screen, "stageButtonCenterY"));
                     }
                     if (screenTicks == 85) {
                         System.out.println("CLOUDNINE_SMOKE: status=" + field(screen, "message") + " staging=" + field(screen, "staging"));
                     }
-                    if (exitCountdown < 0) {
-                        try (var files = Files.list(game.resolve("mods"))) {
-                            if (files.anyMatch(path -> path.getFileName().toString().startsWith("cloudnine-once-")
-                                    && path.toString().endsWith(".jar"))) {
-                                Files.writeString(output.resolve("stage"), "Left Alt and UI click staged the fixture\n");
-                                exitCountdown = 60;
-                            }
-                        }
+                    if (exitCountdown < 0 && Files.exists(game.resolve("cloudnine/handoff/next.properties"))) {
+                        Files.writeString(output.resolve("stage"), "Left Alt and UI click prepared the isolated fixture\n");
+                        exitCountdown = 60;
                     }
                 }
                 if (exitCountdown >= 0 && --exitCountdown == 0) client.stop();
@@ -141,6 +141,18 @@ public final class SmokeHarness implements ClientModInitializer {
                 client.stop();
             }
         });
+    }
+
+    private static boolean isSelector(Object screen) {
+        return screen != null && screen.getClass().getName().equals("dev.cloudnine.client.CloudNineScreen");
+    }
+
+    private static Object call(Object object, String name) throws ReflectiveOperationException {
+        return object.getClass().getMethod(name).invoke(object);
+    }
+
+    private static int coordinate(Object screen, String name) throws ReflectiveOperationException {
+        return (int) call(screen, name);
     }
 
     private static Object field(Object object, String name) throws ReflectiveOperationException {

@@ -73,10 +73,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="cloudnine-preview-${GITHUB_SHA:0:12}"
-          (cd build/libs && sha256sum cloudnine-0.2.0.jar > cloudnine-0.2.0.jar.sha256)
-          gh release create "$tag" build/libs/cloudnine-0.2.0.jar build/libs/cloudnine-0.2.0.jar.sha256 \
+          (cd build/libs && sha256sum cloudnine-0.3.0.jar > cloudnine-0.3.0.jar.sha256)
+          gh release create "$tag" build/libs/cloudnine-0.3.0.jar build/libs/cloudnine-0.3.0.jar.sha256 \
             --target "$GITHUB_SHA" --prerelease \
-            --title "Cloud Nine 0.2.0 prototype (Minecraft 1.21.11)" \
+            --title "Cloud Nine 0.3.0 prototype (Minecraft 1.21.11)" \
             --notes-file - <<'NOTES'
           **Prototype only.** The requested Drive clients are not included.
 
@@ -84,10 +84,11 @@ jobs:
           Put the JAR in your mods folder and press Left Alt. Add trusted compiled Fabric JARs to
           the library folder. A source ZIP and matching JAR with the same basename appear under the
           exact ZIP filename; a source ZIP alone cannot be run. Select a JAR, quit, and restart
-          Minecraft to use it for one session.
-          Dependencies are not installed automatically; existing mods remain untouched.
+          Minecraft after waiting at least five seconds. Cloud Nine is removed from the selected
+          session and restored after that session exits. Dependencies are not installed automatically;
+          existing unrelated mods remain untouched.
 
           Fabric cannot safely hot-swap arbitrary mods while the game is running. If a selected
-          mod crashes before cleanup, see the README for manual recovery. CI tested this remapped
-          JAR in a real production-like Minecraft client using a synthetic fixture over three launches.
+          mod crashes before the return helper starts, see the README for manual recovery. CI tested
+          this remapped JAR in a real production-like Minecraft client using a synthetic fixture over three launches.
           NOTES

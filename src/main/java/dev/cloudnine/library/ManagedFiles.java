@@ -22,12 +22,14 @@ final class ManagedFiles {
     static final String PREFIX = "cloudnine-once-";
     private final Path mods;
     private final Path markers;
+    private final Path handoff;
 
     record Managed(String id, Path file, String label, String modId) { }
 
     ManagedFiles(Path gameDir) {
         mods = gameDir.resolve("mods");
         markers = gameDir.resolve("cloudnine").resolve("managed");
+        handoff = gameDir.resolve("cloudnine").resolve("handoff");
     }
 
     void prepareDirectories() throws IOException {
@@ -80,10 +82,13 @@ final class ManagedFiles {
     Optional<Managed> readOwned(String id) throws IOException {
         if (!isId(id)) return Optional.empty();
         Path marker = marker(id);
-        Path jar = jar(id);
+        Path staged = jar(id);
+        Path held = heldJar(id);
+        boolean hasStaged = Files.isRegularFile(staged, LinkOption.NOFOLLOW_LINKS);
+        boolean hasHeld = Files.isRegularFile(held, LinkOption.NOFOLLOW_LINKS);
         if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
-                || !Files.isRegularFile(jar, LinkOption.NOFOLLOW_LINKS)
-                || Files.size(marker) > 65536) return Optional.empty();
+                || hasStaged == hasHeld || Files.size(marker) > 65536) return Optional.empty();
+        Path jar = hasStaged ? staged : held;
         Properties properties = new Properties();
         try (InputStream input = Files.newInputStream(marker)) { properties.load(input); }
         String hash = properties.getProperty("sha256", "");
@@ -93,13 +98,25 @@ final class ManagedFiles {
     }
 
     void deleteOwned(String id) throws IOException {
-        if (readOwned(id).isEmpty()) throw new IOException("The staged file is missing or changed; it was left alone.");
-        Files.delete(jar(id));
+        Managed owned = readOwned(id).orElseThrow(() -> new IOException("The staged file is missing or changed; it was left alone."));
+        Files.delete(owned.file());
         Files.deleteIfExists(marker(id));
+    }
+
+    Managed hold(String id) throws IOException {
+        Managed owned = readOwned(id).orElseThrow(() -> new IOException("The staged file is missing or changed."));
+        if (!owned.file().equals(jar(id))) throw new IOException("The staged file is already held.");
+        if (Files.isSymbolicLink(handoff) || Files.isSymbolicLink(handoff.getParent())) {
+            throw new IOException("Linked handoff folders are not supported.");
+        }
+        Files.createDirectories(handoff);
+        Files.move(owned.file(), heldJar(id));
+        return new Managed(id, heldJar(id), owned.label(), owned.modId());
     }
 
     Path markers() { return markers; }
     Path jar(String id) { return mods.resolve(PREFIX + id + ".jar"); }
+    Path heldJar(String id) { return handoff.resolve("selected-" + id + ".jar.off"); }
     private Path marker(String id) { return markers.resolve(id + ".properties"); }
 
     static boolean isId(String id) {
