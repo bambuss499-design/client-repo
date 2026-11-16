@@ -63,6 +63,10 @@ sourceSets {
         compileClasspath += sourceSets.main.compileClasspath
         runtimeClasspath += output + compileClasspath
     }
+    replacementFixture {
+        compileClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
     sourceBuildSmoke {
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += output + compileClasspath
@@ -80,6 +84,12 @@ tasks.register('fixtureJar', Jar) {
     archiveFileName = 'Moonlit Fixture.jar'
     destinationDirectory = layout.buildDirectory.dir('smoke')
     from sourceSets.fixture.output
+}
+tasks.register('replacementFixtureJar', Jar) {
+    dependsOn tasks.named('replacementFixtureClasses')
+    archiveFileName = 'Starlit Replacement.jar'
+    destinationDirectory = layout.buildDirectory.dir('smoke')
+    from sourceSets.replacementFixture.output
 }
 
 // Minimal standalone harness for testing an actual source build in a container
@@ -112,8 +122,8 @@ tasks.register('remapSmokeHarnessJar', net.fabricmc.loom.task.RemapJarTask) {
     addNestedDependencies = false
 }
 tasks.register('productionSmoke', net.fabricmc.loom.task.prod.ClientProductionRunTask) {
-    // Exercise the normal mods folder: the selector must actually disappear in
-    // the selected-client launch, not be injected through fabric.addMods.
+    // Exercise the installed selector from the normal mods folder, rather
+    // than injecting it through fabric.addMods.
     mods.setFrom(configurations.productionRuntimeMods, tasks.named('remapSmokeHarnessJar'))
     runDir = file(System.getenv('CLOUDNINE_SMOKE_DIR') ?: 'run/cloudnine-ci')
     useXVFB = false // CI supplies one X server for the entire three-launch scenario.

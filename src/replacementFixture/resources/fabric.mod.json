@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "cloudninefixture2",
+  "version": "1.0.0",
+  "name": "Starlit Replacement Fixture",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.cloudnine.replacement.ReplacementFixture"] },
+  "depends": { "minecraft": "1.21.11", "fabricloader": ">=0.19.5" }
+}

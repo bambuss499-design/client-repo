@@ -77,6 +77,27 @@ class ClientLibraryTest {
         assertFalse(library.hasPending());
     }
 
+    @Test void customJarsAddedAfterOpeningCanBeSwitchedAcrossSessions() throws Exception {
+        ClientLibrary library = new ClientLibrary(game, List.of());
+        assertTrue(library.scan().isEmpty());
+        jar("Custom A.JAR", metadata("shared_client", "1.21.11"));
+        LibraryEntry first = library.scan().get(0);
+        assertEquals("Custom A", first.label());
+        library.stage(first);
+        PersistentSwitchHelper.apply(game);
+        ClientLibrary loaded = new ClientLibrary(game, List.of());
+        assertTrue(loaded.isActive(loaded.scan().get(0)));
+        jar("Custom B.jar", metadata("shared_client", "1.21.11"));
+        List<LibraryEntry> refreshed = loaded.scan();
+        assertFalse(loaded.isActive(refreshed.get(1)));
+        loaded.stage(refreshed.get(1));
+        assertEquals("Custom A", ownedActive(game).get(0).label());
+        PersistentSwitchHelper.apply(game);
+        assertEquals(1, ownedActive(game).size());
+        assertEquals("Custom B", ownedActive(game).get(0).label());
+        assertTrue(new ClientLibrary(game, List.of()).isActive(refreshed.get(1)));
+    }
+
     @Test void catalogNamePairsWithMatchingJarEvenWithoutSourceZip() throws Exception {
         jar("Anubis.jar", metadata("anubis", "1.21.11"));
         List<LibraryEntry> entries = new ClientLibrary(game).scan();
@@ -154,26 +175,30 @@ class ClientLibraryTest {
         assertTrue(new ClientLibrary(game, List.of()).scan().stream().noneMatch(LibraryEntry::canStage));
     }
 
-    @Test void selectingAndReplacingOnlyTouchesManagedFiles() throws Exception {
+    @Test void selectingReplacingAndCancelingTouchesOnlyPendingCopies() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
         jar("Two.jar", metadata("client_two", "1.21.11"));
         Path mods = game.resolve("mods");
         Files.createDirectories(mods);
-        Path unrelated = mods.resolve("my-important-mod.jar");
-        Files.writeString(unrelated, "leave me alone");
+        Path unrelated = Files.writeString(mods.resolve("my-important-mod.jar"), "leave me alone");
+        Path similar = Files.writeString(mods.resolve("cloudnine-once-personal.jar"), "also unrelated");
         ClientLibrary library = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = library.scan();
         library.stage(entries.get(0));
         assertTrue(library.hasPending());
-        assertEquals(1, managedJars(mods).size());
+        assertEquals(0, ownedActive(game).size());
+        assertEquals(1, heldCopies(game).size());
         library.stage(entries.get(1));
         assertEquals("Two", library.pendingLabel());
-        assertEquals(1, managedJars(mods).size());
-        assertEquals("leave me alone", Files.readString(unrelated));
+        assertEquals(0, ownedActive(game).size());
+        assertEquals(1, heldCopies(game).size());
         library.cancelPending();
         assertFalse(library.hasPending());
-        assertTrue(managedJars(mods).isEmpty());
-        assertTrue(Files.exists(unrelated));
+        assertTrue(heldCopies(game).isEmpty());
+        assertFalse(Files.exists(PersistentSwitchHelper.state(game)));
+        PersistentSwitchHelper.apply(game); // the waiting helper sees cancellation
+        assertEquals("leave me alone", Files.readString(unrelated));
+        assertEquals("also unrelated", Files.readString(similar));
     }
 
     @Test void concurrentSelectionsStillLeaveOnlyOnePendingCopy() throws Exception {
@@ -189,36 +214,52 @@ class ClientLibraryTest {
                 start.countDown();
                 first.get();
                 second.get();
-                assertEquals(1, managedJars(game.resolve("mods")).size());
+                assertEquals(0, ownedActive(game).size());
+                assertEquals(1, heldCopies(game).size());
                 assertTrue(library.hasPending());
             }
         }
     }
 
-    @Test void nextSessionIsRecognizedAndStagingAnotherDoesNotRemoveActive() throws Exception {
+    @Test void nextSessionKeepsActiveAndAnotherSelectionReplacesItOnlyAfterExit() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
         jar("Two.jar", metadata("client_two", "1.21.11"));
         ClientLibrary first = new ClientLibrary(game, List.of());
         first.stage(first.scan().get(0));
+        assertEquals(0, ownedActive(game).size());
+        PersistentSwitchHelper.apply(game); // simulate the process exiting
         ClientLibrary nextSession = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = nextSession.scan();
         assertTrue(nextSession.isActive(entries.get(0)));
         nextSession.stage(entries.get(1));
-        assertEquals(2, managedJars(game.resolve("mods")).size());
+        assertEquals(1, ownedActive(game).size());
+        assertEquals("One", ownedActive(game).get(0).label());
         nextSession.cancelPending();
-        assertEquals(1, managedJars(game.resolve("mods")).size());
-        assertTrue(nextSession.isActive(entries.get(0)));
+        assertEquals("One", ownedActive(game).get(0).label());
+        nextSession.stage(entries.get(1));
+        PersistentSwitchHelper.apply(game);
+        assertEquals(1, ownedActive(game).size());
+        assertEquals("Two", ownedActive(game).get(0).label());
+        assertTrue(heldCopies(game).isEmpty());
+        ClientLibrary thirdSession = new ClientLibrary(game, List.of());
+        assertTrue(thirdSession.isActive(thirdSession.scan().get(1)));
+        assertFalse(thirdSession.isActive(thirdSession.scan().get(0)));
+        // No new selection means the current client stays installed across further exits.
+        PersistentSwitchHelper.apply(game);
+        assertEquals("Two", ownedActive(game).get(0).label());
     }
 
     @Test void cleanupRefusesChangedOrUnownedFiles() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
         ClientLibrary library = new ClientLibrary(game, List.of());
         library.stage(library.scan().get(0));
-        Path staged = managedJars(game.resolve("mods")).get(0);
-        String id = staged.getFileName().toString().substring(ManagedFiles.PREFIX.length(), staged.getFileName().toString().length() - 4);
+        Path staged = heldCopies(game).get(0);
+        String id = PersistentSwitchHelper.readPlan(game).selected().id();
         Files.writeString(staged, "someone replaced this file");
         ManagedFiles files = new ManagedFiles(game);
         assertThrows(IOException.class, () -> files.deleteOwned(id));
+        assertThrows(IOException.class, library::cancelPending);
+        assertTrue(library.hasPending());
         assertEquals("someone replaced this file", Files.readString(staged));
         assertThrows(IOException.class, () -> files.deleteOwned("not-a-uuid"));
     }
@@ -227,9 +268,8 @@ class ClientLibraryTest {
         jar("One.jar", metadata("client_one", "1.21.11"));
         ClientLibrary library = new ClientLibrary(game, List.of());
         library.stage(library.scan().get(0));
-        Path staged = managedJars(game.resolve("mods")).get(0);
-        String id = staged.getFileName().toString().substring(ManagedFiles.PREFIX.length(), staged.getFileName().toString().length() - 4);
-        new ManagedFiles(game).deleteOwned(id);
+        Path staged = heldCopies(game).get(0);
+        library.cancelPending();
         assertFalse(Files.exists(staged));
         assertTrue(Files.exists(game.resolve("cloudnine/clients/One.jar")));
     }
@@ -240,9 +280,13 @@ class ClientLibraryTest {
         assertTrue(new ClientLibrary(game, List.of()).scan().get(0).canStage());
     }
 
-    private static List<Path> managedJars(Path dir) throws IOException {
-        try (var stream = Files.list(dir)) {
-            return stream.filter(path -> path.getFileName().toString().startsWith(ManagedFiles.PREFIX)).toList();
+    private static List<ManagedFiles.Managed> ownedActive(Path game) throws IOException {
+        return new ManagedFiles(game).activeOwned();
+    }
+
+    private static List<Path> heldCopies(Path game) throws IOException {
+        try (var stream = Files.list(game.resolve("cloudnine/handoff"))) {
+            return stream.filter(path -> path.getFileName().toString().startsWith("selected-")).toList();
         }
     }
 }

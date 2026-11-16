@@ -14,7 +14,7 @@ import java.util.Locale;
 import java.util.Properties;
 import java.util.UUID;
 
-/** A tiny temporary Fabric mod that schedules restoration after the selected session. */
+/** Legacy 0.4 return guard; new switches keep Cloud Nine installed instead. */
 public final class ReturnGuard implements PreLaunchEntrypoint {
     @Override
     public void onPreLaunch() {

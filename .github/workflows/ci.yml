@@ -45,7 +45,7 @@ jobs:
       # Full Minecraft launches are opt-in rather than delaying every update.
       - name: Prepare optional fixture mods
         if: github.event_name == 'workflow_dispatch' && inputs.full_smoke
-        run: ./gradlew --no-daemon remapSmokeHarnessJar fixtureJar
+        run: ./gradlew --no-daemon remapSmokeHarnessJar fixtureJar replacementFixtureJar
       - name: Install virtual display
         if: github.event_name == 'workflow_dispatch' && inputs.full_smoke
         run: |

@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if ! ./gradlew --no-daemon clean build remapSmokeHarnessJar fixtureJar prepareSourceBuildSmoke 2>&1 | tee /tmp/dg-selector-build.log; then
+          if ! ./gradlew --no-daemon clean build remapSmokeHarnessJar fixtureJar replacementFixtureJar prepareSourceBuildSmoke 2>&1 | tee /tmp/dg-selector-build.log; then
             python3 .github/scripts/annotate.py /tmp/dg-selector-build.log 'Selector build failed'
             exit 1
           fi
@@ -100,7 +100,7 @@ jobs:
           set -o pipefail
           export CLOUDNINE_SMOKE_DG_JAR="$RUNNER_TEMP/cloudnine-dg-source/game/cloudnine/clients/Dgclient.jar"
           if ! xvfb-run -a -s '-screen 0 1280x720x24 -ac +extension GLX +render -noreset' bash .github/scripts/smoke.sh 2>&1 | tee /tmp/dg-smoke.log; then
-            for log in build/smoke-logs/*.log build/production-evidence/latest.log build/production-evidence/handoff.log; do
+            for log in build/smoke-logs/*.log build/production-evidence/latest.log build/production-evidence/switch.log; do
               if [ -f "$log" ]; then echo "=== $log ===" >> /tmp/dg-smoke.log; tail -160 "$log" >> /tmp/dg-smoke.log; fi
             done
             python3 .github/scripts/annotate.py /tmp/dg-smoke.log 'Dgclient isolated Minecraft test failed'

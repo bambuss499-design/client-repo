@@ -38,9 +38,8 @@ public final class CloudNineClient implements ClientModInitializer {
                 throw new IOException("Cloud Nine must be installed as a JAR in the mods folder.");
             }
             library = new ClientLibrary(Minecraft.getInstance().gameDirectory.toPath(), origin.getPaths().get(0));
-            library.scheduleOneSessionCleanup();
         } catch (IOException | RuntimeException e) {
-            startupError = "Library or cleanup unavailable: " + e.getMessage();
+            startupError = "Library unavailable: " + e.getMessage();
             LOGGER.error("Could not initialize the client library", e);
         }
         ClientTickEvents.END_CLIENT_TICK.register(client -> {

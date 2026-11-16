@@ -1,7 +1,6 @@
 package dev.cloudnine.library;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -14,7 +13,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.time.Instant;
 
 /** Owns a library inside a single Minecraft game directory. */
 public final class ClientLibrary {
@@ -23,13 +21,16 @@ public final class ClientLibrary {
     private final JarInspector inspector = new JarInspector();
     private final ManagedFiles managed;
     private final List<String> catalogNames;
-    private final SessionSwitch sessionSwitch;
+    private final PersistentSwitch persistentSwitch;
     private final SourceBuilder sourceBuilder;
     private final List<ManagedFiles.Managed> active = new ArrayList<>();
     private volatile ManagedFiles.Managed pending;
+    private volatile String switchProblem = "";
+    private volatile boolean recovering;
     private volatile boolean building;
     private volatile String lastBuildFailure = "";
 
+    /** Offline inspection/build mode; no post-exit helper is launched without an installed selector JAR. */
     public ClientLibrary(Path gameDir) throws IOException {
         this(gameDir, DriveCatalog.NAMES, null);
     }
@@ -46,12 +47,13 @@ public final class ClientLibrary {
     private ClientLibrary(Path gameDir, List<String> catalogNames, Path self) throws IOException {
         this.gameDir = gameDir.toAbsolutePath().normalize();
         this.catalogNames = List.copyOf(catalogNames);
-        sessionSwitch = self == null ? null : new SessionSwitch(this.gameDir, self);
         clientsDir = this.gameDir.resolve("cloudnine").resolve("clients");
         managed = new ManagedFiles(this.gameDir);
-        sourceBuilder = new SourceBuilder(this.gameDir, clientsDir, inspector);
-        Files.createDirectories(clientsDir);
         managed.prepareDirectories();
+        if (Files.isSymbolicLink(clientsDir)) throw new IOException("Linked client libraries are not supported.");
+        Files.createDirectories(clientsDir);
+        persistentSwitch = new PersistentSwitch(this.gameDir, self, managed);
+        sourceBuilder = new SourceBuilder(this.gameDir, clientsDir, inspector);
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(managed.markers(), "*.properties")) {
             for (Path path : stream) {
                 String name = path.getFileName().toString();
@@ -60,9 +62,28 @@ public final class ClientLibrary {
                 catch (IOException ignored) { /* A damaged marker is never authority to delete a file. */ }
             }
         }
+        try {
+            PersistentSwitch.Resumed resumed = persistentSwitch.resume();
+            if (resumed != null) {
+                pending = resumed.selection();
+                recovering = resumed.recovering();
+            }
+        } catch (IOException e) {
+            // Keep the library and folder accessible, but never stage over a damaged plan.
+            switchProblem = "Switch needs recovery: " + e.getMessage();
+            System.err.println("Cloud Nine: " + switchProblem);
+        }
     }
 
     public Path clientsDir() { return clientsDir; }
+    public String switchProblem() { return switchProblem; }
+    public boolean isRecovering() { return recovering; }
+    public boolean canSwitch() { return switchProblem.isEmpty() && !recovering; }
+
+    private void requireSwitchable() throws IOException {
+        if (!switchProblem.isEmpty()) throw new IOException(switchProblem);
+        if (recovering) throw new IOException("An interrupted switch is being recovered; quit and wait before relaunching.");
+    }
 
     public List<LibraryEntry> scan() throws IOException {
         // A source ZIP is not itself an executable mod. Pair it only with a
@@ -152,6 +173,7 @@ public final class ClientLibrary {
 
     /** Called only after the user explicitly confirms that the third-party build may execute. */
     public synchronized void buildAndStage(LibraryEntry entry) throws IOException {
+        requireSwitchable();
         DriveCatalog.Source source = DriveCatalog.sourceFor(entry.label())
                 .filter(ignored -> canBuild(entry))
                 .orElseThrow(() -> new IOException("No supported source build is available for this entry."));
@@ -167,6 +189,7 @@ public final class ClientLibrary {
     }
 
     public synchronized void stage(LibraryEntry entry) throws IOException {
+        requireSwitchable();
         Path source = entry.file().toAbsolutePath().normalize();
         if (!clientsDir.equals(source.getParent()) || !Files.isRegularFile(source)
                 || !source.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
@@ -175,21 +198,23 @@ public final class ClientLibrary {
         LibraryEntry checked = inspector.inspect(source, entry.label());
         if (!checked.canStage()) throw new IOException(checked.problem());
         ManagedFiles.Managed replacement = managed.stage(checked, inspector);
+        ManagedFiles.Managed previous = pending;
         try {
-            if (sessionSwitch != null) replacement = managed.hold(replacement.id());
-            if (pending != null) {
-                managed.deleteOwned(pending.id());
-                if (sessionSwitch != null) sessionSwitch.disarm(pending.id());
-                pending = null;
-            }
-            if (sessionSwitch != null) sessionSwitch.arm(replacement);
+            // A new plan replaces the old pending plan atomically; the active client
+            // stays untouched until the helper sees the game process exit.
+            persistentSwitch.arm(replacement);
             pending = replacement;
         } catch (IOException | RuntimeException e) {
             try { managed.deleteOwned(replacement.id()); } catch (IOException ignored) { }
-            // The old selection is retained only if its deletion failed; otherwise
-            // no pending selection is reported after a failed replacement.
-            if (pending != null && managed.readOwned(pending.id()).isEmpty()) pending = null;
             throw new IOException("Could not prepare the client switch: " + e.getMessage(), e);
+        }
+        if (previous != null) {
+            try { managed.deleteOwned(previous.id()); }
+            catch (IOException e) {
+                // The new plan is already committed. An altered old pending copy is
+                // left outside mods rather than misreporting the successful switch.
+                System.err.println("Cloud Nine left an old pending copy for recovery: " + e.getMessage());
+            }
         }
     }
 
@@ -203,36 +228,19 @@ public final class ClientLibrary {
         return current != null && current.modId().equals(entry.modId()) && current.label().equals(entry.label());
     }
     public boolean isActive(LibraryEntry entry) {
-        return !entry.modId().isBlank() && active.stream().anyMatch(item -> item.modId().equals(entry.modId()));
+        return !entry.modId().isBlank() && active.stream().anyMatch(item ->
+                item.modId().equals(entry.modId()) && item.label().equals(entry.label()));
     }
     public List<String> activeLabels() { return active.stream().map(ManagedFiles.Managed::label).toList(); }
 
     public synchronized void cancelPending() throws IOException {
+        requireSwitchable();
         if (pending != null) {
             ManagedFiles.Managed canceled = pending;
-            managed.deleteOwned(canceled.id());
+            persistentSwitch.disarm(canceled.id());
             pending = null;
-            if (sessionSwitch != null) sessionSwitch.disarm(canceled.id());
-        }
-    }
-
-    /** Starts a tiny Java helper that waits for this JVM to exit before deleting active copies. */
-    public void scheduleOneSessionCleanup() throws IOException {
-        if (active.isEmpty()) return;
-        try {
-            Path codeSource = Path.of(OneShotCleanup.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            String executable = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win") ? "javaw.exe" : "java";
-            Path java = Path.of(System.getProperty("java.home"), "bin", executable);
-            long start = ProcessHandle.current().info().startInstant().map(Instant::toEpochMilli).orElse(0L);
-            List<String> command = new ArrayList<>(List.of(java.toString(), "-cp", codeSource.toString(),
-                    OneShotCleanup.class.getName(), gameDir.toString(), Long.toString(ProcessHandle.current().pid()),
-                    Long.toString(start)));
-            active.forEach(item -> command.add(item.id()));
-            new ProcessBuilder(command).redirectErrorStream(true)
-                    .redirectOutput(ProcessBuilder.Redirect.appendTo(gameDir.resolve("cloudnine").resolve("cleanup.log").toFile()))
-                    .start();
-        } catch (URISyntaxException e) {
-            throw new IOException("Could not start the one-session cleanup helper.", e);
+            try { managed.deleteOwned(canceled.id()); }
+            catch (IOException e) { throw new IOException("Switch canceled, but its saved copy was left for recovery: " + e.getMessage(), e); }
         }
     }
 }

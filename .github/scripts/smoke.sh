@@ -10,6 +10,8 @@ export CLOUDNINE_SMOKE_DIR="$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
 version=$(sed -n 's/^mod_version=//p' gradle.properties)
 cp "build/libs/cloudnine-${version}.jar" "$game/mods/cloudnine-test-selector.jar"
+# A standalone custom JAR, used to replace the first client through the UI.
+cp 'build/smoke/Starlit Replacement.jar' "$game/cloudnine/clients/Starlit Replacement.jar"
 target=${CLOUDNINE_SMOKE_TARGET:-fixture}
 if [[ "$target" == dgclient ]]; then
   test -f "${CLOUDNINE_SMOKE_DG_JAR:?Set CLOUDNINE_SMOKE_DG_JAR to the isolated source build}"
@@ -28,7 +30,7 @@ pid=''
 cleanup() {
   if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
   mkdir -p build/production-evidence
-  for path in screenshots crash-reports options.txt cloudnine/cleanup.log cloudnine/handoff.log logs/latest.log; do
+  for path in screenshots crash-reports options.txt cloudnine/switch.log cloudnine/handoff.log logs/latest.log; do
     if [[ -e "$game/$path" ]]; then cp -a "$game/$path" build/production-evidence/ || true; fi
   done
   rm -rf "$game"
@@ -53,7 +55,7 @@ launch() {
   echo "Launching Minecraft: $phase"
   if [[ "$target" == dgclient && "$phase" == loaded && -n "${CLOUDNINE_SMOKE_DOCKER_IMAGE:-}" ]]; then
     # Run third-party code with no network or repository credentials. Keep the
-    # container alive briefly after Minecraft exits so the return helper can run.
+    # container alive briefly after Minecraft exits so the switch helper can run.
     timeout 400s docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --user "$(id -u):$(id -g)" \
       -v "$PWD:$PWD" -w "$PWD" -v "$HOME/.gradle:$HOME/.gradle" -v "$game:$game" \
       -e HOME="$HOME" -e GRADLE_USER_HOME="$HOME/.gradle" -e CLOUDNINE_SMOKE_DIR="$game" \
@@ -82,32 +84,35 @@ finish stage
 test -f "$game/screenshots/cloudnine-smoke.png"
 cp "$game/screenshots/cloudnine-smoke.png" build/cloudnine-screen.png
 
-# The independent helper must move the selector out of mods and activate the
-# chosen client plus the temporary return guard only after this JVM exits.
-for ((i=0; i<150; i++)); do
-  if [[ ! -f "$game/mods/cloudnine-test-selector.jar" ]] && compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
-      && compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then break; fi
-  sleep 0.2
-done
-if [[ -f "$game/mods/cloudnine-test-selector.jar" ]] || ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
-    || ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
-  echo 'One-session handoff did not prepare correctly'; cat "$game/cloudnine/handoff.log" || true; exit 1
-fi
+wait_for_switch() {
+  local -a clients=()
+  for ((i=0; i<150; i++)); do
+    mapfile -t clients < <(compgen -G "$game/mods/cloudnine-once-*.jar" || true)
+    if [[ ! -e "$game/cloudnine/switch/next.properties" && -f "$game/mods/cloudnine-test-selector.jar" \
+        && ${#clients[@]} == 1 ]] && ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo 'Persistent switch did not complete safely'
+  cat "$game/cloudnine/switch.log" 2>/dev/null || true
+  return 1
+}
 
+# Cloud Nine remains installed while the first managed client becomes active.
+wait_for_switch
+first_client=$(compgen -G "$game/mods/cloudnine-once-*.jar")
+
+# In the selected-client session, reopen Cloud Nine and choose a custom JAR.
 launch loaded
 finish loaded
-for ((i=0; i<150; i++)); do
-  if [[ -f "$game/mods/cloudnine-test-selector.jar" ]] && ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
-      && ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then break; fi
-  sleep 0.2
-done
-if [[ ! -f "$game/mods/cloudnine-test-selector.jar" ]] || compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
-    || compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
-  echo 'One-shot handoff did not restore the selector after the game exited'
-  cat "$game/cloudnine/handoff.log" || true
-  exit 1
+wait_for_switch
+second_client=$(compgen -G "$game/mods/cloudnine-once-*.jar")
+if [[ "$first_client" == "$second_client" || -e "$first_client" ]]; then
+  echo 'The previous managed client was not replaced'; exit 1
 fi
 
-launch empty
-finish empty
-echo "PASS: Left Alt selected $target; it loaded without Cloud Nine, which was then restored."
+# The next launch has only the replacement, and Left Alt can open Cloud Nine again.
+launch replacement
+finish replacement
+echo "PASS: Cloud Nine reopened with $target, replaced it with a custom JAR, and reopened again."

@@ -29,6 +29,7 @@ public final class SmokeHarness implements ClientModInitializer {
     private boolean wroteTitle;
     private boolean dismissedWelcome;
     private boolean fixturePrepared;
+    private boolean loadedVerified;
 
     @Override public void onInitializeClient() {
         if (phase.isBlank()) return;
@@ -59,30 +60,32 @@ public final class SmokeHarness implements ClientModInitializer {
                 // blocks mouse events until that loading overlay is actually gone.
                 if (client.screen instanceof TitleScreen && client.getOverlay() == null) {
                     if (!wroteTitle) { Files.writeString(output.resolve("title-ready"), "ready\n"); wroteTitle = true; }
-                    if (phase.equals("stage") && !sentKey && ++titleTicks >= 25) {
-                        pressLeftAlt(client.getWindow().handle());
-                        sentKey = true;
-                        System.out.println("CLOUDNINE_SMOKE: sent Left Alt through Minecraft's GLFW callback");
-                    }
-                    if (exitCountdown < 0 && phase.equals("loaded")) {
+                    if (!loadedVerified && phase.equals("loaded")) {
                         if (dgclient ? !FabricLoader.getInstance().isModLoaded("aetherclient")
                                 : !FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
                             throw new IllegalStateException("Selected " + (dgclient ? "Dgclient" : "fixture") + " did not initialize");
                         }
-                        if (FabricLoader.getInstance().isModLoaded("cloudnine") || !FabricLoader.getInstance().isModLoaded("cloudnine_return")) {
-                            throw new IllegalStateException("Selector must be unloaded and return helper present in selected session");
+                        if (!FabricLoader.getInstance().isModLoaded("cloudnine") || FabricLoader.getInstance().isModLoaded("cloudnine_return")
+                                || FabricLoader.getInstance().isModLoaded("cloudninefixture2")) {
+                            throw new IllegalStateException("Selector and first client must both be loaded, without the replacement or old return helper");
                         }
-                        Files.writeString(output.resolve("loaded"), "Fabric loaded the selected fixture\n");
-                        exitCountdown = 40;
+                        loadedVerified = true;
                     }
-                    if (exitCountdown < 0 && phase.equals("empty")) {
-                        if (FabricLoader.getInstance().isModLoaded("cloudninefixture") || FabricLoader.getInstance().isModLoaded("aetherclient")
-                                || FabricLoader.getInstance().isModLoaded("cloudnine_return")
-                                || !FabricLoader.getInstance().isModLoaded("cloudnine")) {
-                            throw new IllegalStateException("Selector was not restored without the fixture and return helper");
+                    if (!loadedVerified && phase.equals("replacement")) {
+                        if (!FabricLoader.getInstance().isModLoaded("cloudnine")
+                                || !FabricLoader.getInstance().isModLoaded("cloudninefixture2")
+                                || !Files.exists(game.resolve("cloudnine/replacement-loaded.txt"))
+                                || FabricLoader.getInstance().isModLoaded("cloudninefixture")
+                                || FabricLoader.getInstance().isModLoaded("aetherclient")
+                                || FabricLoader.getInstance().isModLoaded("cloudnine_return")) {
+                            throw new IllegalStateException("Replacement must load with Cloud Nine and without the old client");
                         }
-                        Files.writeString(output.resolve("empty"), "Fixture absent on subsequent launch\n");
-                        exitCountdown = 40;
+                        loadedVerified = true;
+                    }
+                    if (!sentKey && ++titleTicks >= 25) {
+                        pressLeftAlt(client.getWindow().handle());
+                        sentKey = true;
+                        System.out.println("CLOUDNINE_SMOKE: sent Left Alt through Minecraft's GLFW callback");
                     }
                 }
                 if (phase.equals("stage") && client.getOverlay() == null && isSelector(client.screen)) {
@@ -150,10 +153,44 @@ public final class SmokeHarness implements ClientModInitializer {
                     if (screenTicks > 200 && Boolean.TRUE.equals(field(screen, "error")) && !Boolean.TRUE.equals(field(screen, "staging"))) {
                         throw new IllegalStateException("Selection failed: " + field(screen, "message"));
                     }
-                    if (exitCountdown < 0 && Files.exists(game.resolve("cloudnine/handoff/next.properties"))) {
-                        Files.writeString(output.resolve("stage"), "Left Alt and UI click prepared the isolated fixture\n");
+                    if (exitCountdown < 0 && Files.exists(game.resolve("cloudnine/switch/next.properties"))
+                            && !Boolean.TRUE.equals(field(screen, "staging"))) {
+                        Files.writeString(output.resolve("stage"), "Left Alt and UI click prepared the first client\n");
                         exitCountdown = 60;
                     }
+                }
+                if (phase.equals("loaded") && client.getOverlay() == null && isSelector(client.screen)) {
+                    if (!loadedVerified) throw new IllegalStateException("Selector opened before first client was verified");
+                    var screen = client.screen;
+                    screenTicks++;
+                    double scale = client.getWindow().getGuiScale();
+                    if (screenTicks == 5) ((EditBox) field(screen, "search")).setValue("Starlit Replacement");
+                    if (screenTicks == 10) {
+                        click(client.getWindow().handle(), coordinate(screen, "firstRowCenterX") * scale, coordinate(screen, "firstRowCenterY") * scale);
+                    }
+                    if (screenTicks == 20) {
+                        Object selected = field(screen, "selected");
+                        if (selected == null || !call(selected, "label").equals("Starlit Replacement")
+                                || !(boolean) call(selected, "canStage")) {
+                            throw new IllegalStateException("Custom replacement JAR was not selectable");
+                        }
+                        click(client.getWindow().handle(), coordinate(screen, "stageButtonCenterX") * scale, coordinate(screen, "stageButtonCenterY") * scale);
+                    }
+                    if (screenTicks > 200 && Boolean.TRUE.equals(field(screen, "error")) && !Boolean.TRUE.equals(field(screen, "staging"))) {
+                        throw new IllegalStateException("Replacement failed: " + field(screen, "message"));
+                    }
+                    if (exitCountdown < 0 && Files.exists(game.resolve("cloudnine/switch/next.properties"))
+                            && !Boolean.TRUE.equals(field(screen, "staging"))) {
+                        if (!FabricLoader.getInstance().isModLoaded(dgclient ? "aetherclient" : "cloudninefixture")) {
+                            throw new IllegalStateException("The running client must remain active until exit");
+                        }
+                        Files.writeString(output.resolve("loaded"), "Reopened selector and staged a custom replacement JAR\n");
+                        exitCountdown = 60;
+                    }
+                }
+                if (phase.equals("replacement") && loadedVerified && isSelector(client.screen) && exitCountdown < 0) {
+                    Files.writeString(output.resolve("replacement"), "Reopened Cloud Nine with only the replacement client loaded\n");
+                    exitCountdown = 40;
                 }
                 if (exitCountdown >= 0 && --exitCountdown == 0) client.stop();
             } catch (Exception e) {

@@ -169,7 +169,7 @@ public final class CloudNineScreen extends Screen {
         if (visible.isEmpty()) {
             String line = entries.isEmpty() ? "A little empty up here." : "No clients match your search.";
             draw(g, clip(line, leftWidth - 24), leftX + 12, rowsTop + 12, TEXT);
-            if (entries.isEmpty()) draw(g, clip("Add source ZIPs to your library.", leftWidth - 24), leftX + 12, rowsTop + 27, MUTED);
+            if (entries.isEmpty()) draw(g, clip("Add Fabric JARs or source ZIPs.", leftWidth - 24), leftX + 12, rowsTop + 27, MUTED);
         } else {
             for (int i = 0; i < visibleRows() && i + offset < visible.size(); i++) {
                 LibraryEntry entry = visible.get(i + offset);
@@ -197,11 +197,15 @@ public final class CloudNineScreen extends Screen {
         if (selected == null) {
             star(g, rightX + rightWidth / 2, y + 92, 0xFFB8C5FF);
             centered(g, "Choose a client", rightX + rightWidth / 2, y + 107, WHITE);
-            centered(g, "to see the details", rightX + rightWidth / 2, y + 120, MUTED);
+            centered(g, "or add your own", rightX + rightWidth / 2, y + 120, MUTED);
+            draw(g, clip("ADD FILES: copy JARs or ZIPs", rightWidth - 22), rightX + 11, y + 144, TEXT);
+            draw(g, clip("to the folder, then REFRESH.", rightWidth - 22), rightX + 11, y + 157, MUTED);
         } else {
             draw(g, clip(selected.label(), rightWidth - 22), rightX + 11, y + 80, WHITE);
             boolean buildable = library != null && library.canBuild(selected);
-            String status = selected.canStage() ? "READY TO STAGE" : buildable ? "SOURCE BUILD AVAILABLE" : "NOT AVAILABLE";
+            String status = selected.canStage() ? library != null && library.isPending(selected) ? "NEXT LAUNCH"
+                    : library != null && library.isActive(selected) ? "ACTIVE" : "READY TO USE"
+                    : buildable ? "SOURCE BUILD AVAILABLE" : "NOT AVAILABLE";
             draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() || buildable ? MINT : AMBER);
             String detail = selected.canStage() ? "ID: " + selected.modId()
                     : buildable ? library.willDownloadSource(selected) ? "Downloads source (70 MB)" : "Build from your source ZIP"
@@ -217,9 +221,9 @@ public final class CloudNineScreen extends Screen {
                 draw(g, clip("Install required dependencies.", rightWidth - 22), rightX + 11, y + 123, MUTED);
                 if (stageY > y + 205) {
                     rounded(g, rightX + 10, y + 143, rightWidth - 20, 61, 6, 0xA3263250);
-                    draw(g, clip("ONE SESSION, YOUR WAY", rightWidth - 36), rightX + 18, y + 153, LAVENDER);
-                    draw(g, clip("1  Select a trusted client", rightWidth - 36), rightX + 18, y + 170, TEXT);
-                    draw(g, clip("2  Quit, wait 5s, then relaunch", rightWidth - 36), rightX + 18, y + 184, TEXT);
+                    draw(g, clip("SWITCH AFTER EXIT", rightWidth - 36), rightX + 18, y + 153, LAVENDER);
+                    draw(g, clip("1  Quit, wait 10s, then relaunch", rightWidth - 36), rightX + 18, y + 170, TEXT);
+                    draw(g, clip("2  Reopen with Left Alt", rightWidth - 36), rightX + 18, y + 184, TEXT);
                 }
             }
         }
@@ -232,17 +236,22 @@ public final class CloudNineScreen extends Screen {
 
         g.fill(x + 14, footerY - 6, x + panelWidth - 14, footerY - 5, 0xFF2A3653);
         boolean hasPending = library != null && library.hasPending();
+        boolean canUndo = hasPending && library.canSwitch();
         String buildStatus = library == null ? "" : library.buildStatus();
-        String status = error ? message : busy() ? buildStatus.isEmpty() ? "Updating your selection..." : buildStatus
+        boolean switchError = library != null && !library.switchProblem().isEmpty();
+        String status = error ? message : switchError ? library.switchProblem()
+                : library != null && library.isRecovering() ? "Recovering switch: quit, wait 10s, then relaunch."
+                : busy() ? buildStatus.isEmpty() ? "Updating your selection..." : buildStatus
                 : confirmingBuild != null ? "Build runs third-party code. Confirm only if you trust it."
-                : hasPending ? "Quit, wait 5 seconds, then relaunch."
-                : library != null && !library.activeLabels().isEmpty() ? "Active this session; clears after exit."
-                : !message.isEmpty() ? message : "One selection. One session. Existing mods stay untouched.";
-        int reserved = hasPending ? 211 : 155;
-        draw(g, clip(status, Math.max(15, panelWidth - reserved - 36)), leftX, footerY + 3, error ? AMBER : MUTED);
-        if (hasPending) button(g, x + panelWidth - 207, footerY, 50, 16, "UNDO", mouseX, mouseY, false);
+                : !message.isEmpty() ? message
+                : hasPending ? "Quit, wait 10 seconds, then relaunch."
+                : library != null && !library.activeLabels().isEmpty() ? "Active until you choose another client."
+                : "ADD FILES for custom JARs or source ZIPs.";
+        int reserved = canUndo ? 211 : 155;
+        draw(g, clip(status, Math.max(15, panelWidth - reserved - 36)), leftX, footerY + 3, error || switchError ? AMBER : MUTED);
+        if (canUndo) button(g, x + panelWidth - 207, footerY, 50, 16, "UNDO", mouseX, mouseY, false);
         button(g, x + panelWidth - 151, footerY, 55, 16, "REFRESH", mouseX, mouseY, false);
-        button(g, x + panelWidth - 90, footerY, 76, 16, "OPEN FOLDER", mouseX, mouseY, false);
+        button(g, x + panelWidth - 90, footerY, 76, 16, "ADD FILES", mouseX, mouseY, false);
         super.render(g, mouseX, mouseY, partialTick);
     }
 
@@ -251,7 +260,7 @@ public final class CloudNineScreen extends Screen {
         if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             double mx = click.x(), my = click.y();
             if (inside(mx, my, x + panelWidth - 28, y + 14, 15, 15)) { onClose(); return true; }
-            if (inside(mx, my, x + panelWidth - 207, footerY, 50, 16) && library != null && library.hasPending() && !busy()) {
+            if (inside(mx, my, x + panelWidth - 207, footerY, 50, 16) && library != null && library.hasPending() && library.canSwitch() && !busy()) {
                 cancelPending();
                 return true;
             }
@@ -262,7 +271,7 @@ public final class CloudNineScreen extends Screen {
             }
             if (inside(mx, my, x + panelWidth - 90, footerY, 76, 16) && library != null) {
                 Util.getPlatform().openFile(library.clientsDir().toFile());
-                message = "Add source ZIPs here, then refresh."; error = false; return true;
+                message = "Copy Fabric JARs or source ZIPs into the folder, then REFRESH."; error = false; return true;
             }
             if (inside(mx, my, rightX + 10, stageY, rightWidth - 20, 21) && canUseSelected()) {
                 stageSelected();
@@ -310,7 +319,7 @@ public final class CloudNineScreen extends Screen {
     }
 
     private boolean canUseSelected() {
-        return selected != null && library != null && !busy() && (selected.canStage() || library.canBuild(selected));
+        return selected != null && library != null && library.canSwitch() && !busy() && (selected.canStage() || library.canBuild(selected));
     }
 
     private void stageSelected() {
@@ -336,7 +345,7 @@ public final class CloudNineScreen extends Screen {
                 staging = false;
                 if (failure == null) {
                     reload();
-                    message = "Quit, wait 5 seconds, then relaunch your selected client.";
+                    message = "Quit, wait 10 seconds, then relaunch. Left Alt opens Cloud Nine again.";
                     error = false;
                 }
                 else {

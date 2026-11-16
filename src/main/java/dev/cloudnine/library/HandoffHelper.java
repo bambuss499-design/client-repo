@@ -13,7 +13,7 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** JDK-only entry point copied into a separate helper JAR, so the mod JAR can be moved on Windows. */
+/** Legacy 0.4 handoff implementation retained for recovery tests; new switches never remove the selector. */
 public final class HandoffHelper {
     private HandoffHelper() { }
 

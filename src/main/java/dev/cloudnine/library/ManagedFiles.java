@@ -3,45 +3,52 @@ package dev.cloudnine.library;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 
-/**
- * Owns only files that have both our random name and an intact matching marker.
- * Never moves, deletes, or replaces an unrelated file in the mods directory.
- */
+/** Owns only UUID-named copies with an intact, matching marker. */
 final class ManagedFiles {
+    // Keep the old prefix so copies left by previous versions can be recognized.
     static final String PREFIX = "cloudnine-once-";
     private final Path mods;
     private final Path markers;
     private final Path handoff;
 
-    record Managed(String id, Path file, String label, String modId) { }
+    record Managed(String id, Path file, String label, String modId, String sha256) { }
 
     ManagedFiles(Path gameDir) {
         mods = gameDir.resolve("mods");
-        markers = gameDir.resolve("cloudnine").resolve("managed");
-        handoff = gameDir.resolve("cloudnine").resolve("handoff");
+        markers = gameDir.resolve("cloudnine/managed");
+        handoff = gameDir.resolve("cloudnine/handoff");
     }
 
     void prepareDirectories() throws IOException {
+        if (Files.isSymbolicLink(mods) || Files.isSymbolicLink(markers.getParent())
+                || Files.isSymbolicLink(markers) || Files.isSymbolicLink(handoff)) {
+            throw new IOException("Linked mods or Cloud Nine management folders are not supported.");
+        }
         Files.createDirectories(mods);
         Files.createDirectories(markers);
+        Files.createDirectories(handoff);
     }
 
     Managed stage(LibraryEntry source, JarInspector inspector) throws IOException {
         prepareDirectories();
         String id = UUID.randomUUID().toString();
-        Path temporaryJar = mods.resolve("." + PREFIX + id + ".tmp");
-        Path stagedJar = jar(id);
+        // The pending client must not appear in mods until the current JVM exits.
+        Path temporaryJar = handoff.resolve("." + PREFIX + id + ".tmp");
+        Path stagedJar = heldJar(id);
         Path temporaryMarker = markers.resolve("." + id + ".tmp");
         Path marker = marker(id);
         boolean committed = false;
@@ -49,7 +56,7 @@ final class ManagedFiles {
         boolean markerTempCreated = false;
         boolean markerCreated = false;
         try {
-            // CREATE_NEW and non-replacing moves mean even a UUID collision cannot overwrite a user file.
+            // CREATE_NEW and non-replacing moves do not overwrite a user's file.
             try (InputStream input = Files.newInputStream(source.file());
                  OutputStream output = Files.newOutputStream(temporaryJar, StandardOpenOption.CREATE_NEW)) {
                 jarTempCreated = true;
@@ -57,13 +64,14 @@ final class ManagedFiles {
             }
             LibraryEntry checked = inspector.inspect(temporaryJar, source.label());
             if (!checked.canStage()) throw new IOException(checked.problem());
+            String hash = sha256(temporaryJar);
             Properties properties = new Properties();
-            properties.setProperty("sha256", sha256(temporaryJar));
+            properties.setProperty("sha256", hash);
             properties.setProperty("label", source.label());
             properties.setProperty("modId", checked.modId());
             try (OutputStream output = Files.newOutputStream(temporaryMarker, StandardOpenOption.CREATE_NEW)) {
                 markerTempCreated = true;
-                properties.store(output, "Cloud Nine one-session selection");
+                properties.store(output, "Cloud Nine managed selection");
             }
             Files.move(temporaryMarker, marker);
             markerTempCreated = false;
@@ -71,7 +79,7 @@ final class ManagedFiles {
             Files.move(temporaryJar, stagedJar);
             jarTempCreated = false;
             committed = true;
-            return new Managed(id, stagedJar, source.label(), checked.modId());
+            return new Managed(id, stagedJar, source.label(), checked.modId(), hash);
         } finally {
             if (jarTempCreated) Files.deleteIfExists(temporaryJar);
             if (markerTempCreated) Files.deleteIfExists(temporaryMarker);
@@ -86,38 +94,56 @@ final class ManagedFiles {
         Path held = heldJar(id);
         boolean hasStaged = Files.isRegularFile(staged, LinkOption.NOFOLLOW_LINKS);
         boolean hasHeld = Files.isRegularFile(held, LinkOption.NOFOLLOW_LINKS);
-        if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
+        // Refuse links, directories, duplicate copies, and missing markers.
+        if (Files.exists(staged, LinkOption.NOFOLLOW_LINKS) != hasStaged
+                || Files.exists(held, LinkOption.NOFOLLOW_LINKS) != hasHeld
+                || !Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
                 || hasStaged == hasHeld || Files.size(marker) > 65536) return Optional.empty();
         Path jar = hasStaged ? staged : held;
-        Properties properties = new Properties();
-        try (InputStream input = Files.newInputStream(marker)) { properties.load(input); }
+        Properties properties = readMarker(id);
         String hash = properties.getProperty("sha256", "");
         if (!hash.matches("[0-9a-f]{64}") || !hash.equals(sha256(jar))) return Optional.empty();
         return Optional.of(new Managed(id, jar, properties.getProperty("label", "Selected client"),
-                properties.getProperty("modId", "")));
+                properties.getProperty("modId", ""), hash));
+    }
+
+    Properties readMarker(String id) throws IOException {
+        Path marker = marker(id);
+        if (!isId(id) || !Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS) || Files.size(marker) > 65536) {
+            throw new IOException("A managed-client marker is missing or invalid.");
+        }
+        Properties properties = new Properties();
+        try (InputStream input = Files.newInputStream(marker)) { properties.load(input); }
+        catch (IllegalArgumentException e) { throw new IOException("A managed-client marker is invalid.", e); }
+        return properties;
+    }
+
+    /** Ignore unrelated names; a UUID-shaped managed name without valid ownership blocks a switch. */
+    List<Managed> activeOwned() throws IOException {
+        List<Managed> result = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(mods, PREFIX + "*.jar")) {
+            for (Path path : stream) {
+                String name = path.getFileName().toString();
+                String id = name.substring(PREFIX.length(), name.length() - 4);
+                if (!isId(id)) continue;
+                Managed item = readOwned(id).filter(value -> value.file().equals(path)).orElseThrow(() ->
+                        new IOException("A managed-looking JAR is missing its marker or was changed: " + name));
+                result.add(item);
+            }
+        }
+        return List.copyOf(result);
     }
 
     void deleteOwned(String id) throws IOException {
-        Managed owned = readOwned(id).orElseThrow(() -> new IOException("The staged file is missing or changed; it was left alone."));
+        Managed owned = readOwned(id).orElseThrow(() -> new IOException("The managed file is missing or changed; it was left alone."));
         Files.delete(owned.file());
         Files.deleteIfExists(marker(id));
-    }
-
-    Managed hold(String id) throws IOException {
-        Managed owned = readOwned(id).orElseThrow(() -> new IOException("The staged file is missing or changed."));
-        if (!owned.file().equals(jar(id))) throw new IOException("The staged file is already held.");
-        if (Files.isSymbolicLink(handoff) || Files.isSymbolicLink(handoff.getParent())) {
-            throw new IOException("Linked handoff folders are not supported.");
-        }
-        Files.createDirectories(handoff);
-        Files.move(owned.file(), heldJar(id));
-        return new Managed(id, heldJar(id), owned.label(), owned.modId());
     }
 
     Path markers() { return markers; }
     Path jar(String id) { return mods.resolve(PREFIX + id + ".jar"); }
     Path heldJar(String id) { return handoff.resolve("selected-" + id + ".jar.off"); }
-    private Path marker(String id) { return markers.resolve(id + ".properties"); }
+    Path marker(String id) { return markers.resolve(id + ".properties"); }
 
     static boolean isId(String id) {
         try { return UUID.fromString(id).toString().equals(id); }
@@ -137,5 +163,4 @@ final class ManagedFiles {
             throw new IllegalStateException("SHA-256 unavailable", ex);
         }
     }
-
 }
