@@ -1,0 +1,43 @@
+# One-time publication of the already-tested 0.3.0 artifact; no rebuild or game test.
+name: Publish previously tested prototype
+on:
+  push:
+    paths:
+      - .github/workflows/quick-preview.yml
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish the successful run's artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GH_REPO}/actions/artifacts/14196753073/zip" > /tmp/cloudnine-artifact.zip
+          mkdir -p /tmp/cloudnine-out
+          unzip -q /tmp/cloudnine-artifact.zip -d /tmp/cloudnine-out
+          jar=$(find /tmp/cloudnine-out -name 'cloudnine-0.3.0.jar' -type f -print -quit)
+          test -n "$jar"
+          (cd "$(dirname "$jar")" && sha256sum "$(basename "$jar")" > cloudnine-0.3.0.jar.sha256)
+          gh release create cloudnine-preview-02c5408ed4e7 "$jar" "$(dirname "$jar")/cloudnine-0.3.0.jar.sha256" \
+            --target 02c5408ed4e7b2cf957207c8a959db80fa56aa86 --prerelease \
+            --title 'Cloud Nine 0.3.0 prototype (Minecraft 1.21.11)' \
+            --notes-file - <<'NOTES'
+          **Partial prototype.** Left Alt opens the selector, which lists all seven Drive names.
+          The selected compiled client runs after a restart with Cloud Nine itself absent, and
+          Cloud Nine is restored after that session. CI verified this with a synthetic fixture.
+
+          Dgclient can download its public Aether release on selection (the real client has not
+          yet passed a full test). The other six Drive clients are not bundled or verified.
+          Source ZIPs alone are not executable. Do not use files you do not trust.
+
+          Requires Minecraft Java 1.21.11, Java 21, Fabric Loader 0.19.3 or newer and Fabric API.
+          After selecting, quit, wait at least five seconds, then relaunch. If restoration fails,
+          see the README on this branch for manual recovery.
+          NOTES
