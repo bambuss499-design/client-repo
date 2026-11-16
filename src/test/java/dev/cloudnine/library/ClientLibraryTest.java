@@ -56,6 +56,14 @@ class ClientLibraryTest {
         assertTrue(entries.stream().noneMatch(LibraryEntry::canStage));
     }
 
+    @Test void onlyDgclientOffersItsPinnedPublicRelease() throws Exception {
+        ClientLibrary library = new ClientLibrary(game);
+        List<LibraryEntry> entries = library.scan();
+        assertEquals(List.of("Dgclient.zip"), entries.stream().filter(library::canDownload).map(LibraryEntry::label).toList());
+        Files.writeString(game.resolve("cloudnine/clients/Dgclient.jar"), "existing file");
+        assertTrue(library.scan().stream().noneMatch(library::canDownload));
+    }
+
     @Test void catalogNamePairsWithMatchingJarEvenWithoutSourceZip() throws Exception {
         jar("Anubis.jar", metadata("anubis", "1.21.11"));
         List<LibraryEntry> entries = new ClientLibrary(game).scan();

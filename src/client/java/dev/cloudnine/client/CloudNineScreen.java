@@ -164,9 +164,11 @@ public final class CloudNineScreen extends Screen {
                 String initial = entry.label().isBlank() ? "?" : entry.label().substring(0, 1).toUpperCase(Locale.ROOT);
                 draw(g, clip(initial, 8), leftX + 19, rowY + 12, WHITE);
                 draw(g, clip(entry.label(), leftWidth - 57), leftX + 40, rowY + 6, WHITE);
-                String sub = !entry.canStage() ? "NOT READY" : library != null && library.isPending(entry) ? "NEXT LAUNCH"
+                boolean downloadable = library != null && library.canDownload(entry);
+                String sub = !entry.canStage() ? downloadable ? "DOWNLOAD AVAILABLE" : "NOT READY"
+                        : library != null && library.isPending(entry) ? "NEXT LAUNCH"
                         : library != null && library.isActive(entry) ? "ACTIVE THIS SESSION" : "FABRIC  ·  1.21.11";
-                draw(g, clip(sub, leftWidth - 57), leftX + 40, rowY + 19, entry.canStage() ? MUTED : AMBER);
+                draw(g, clip(sub, leftWidth - 57), leftX + 40, rowY + 19, entry.canStage() || downloadable ? MUTED : AMBER);
             }
             if (visible.size() > visibleRows()) draw(g, "SCROLL", leftX + leftWidth - 44, listBottom - 10, MUTED);
         }
@@ -180,9 +182,11 @@ public final class CloudNineScreen extends Screen {
             centered(g, "to see the details", rightX + rightWidth / 2, y + 120, MUTED);
         } else {
             draw(g, clip(selected.label(), rightWidth - 22), rightX + 11, y + 80, WHITE);
-            String status = selected.canStage() ? "READY TO STAGE" : "NOT AVAILABLE";
-            draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() ? MINT : AMBER);
-            String detail = selected.canStage() ? "ID: " + selected.modId() : selected.problem();
+            boolean downloadable = library != null && library.canDownload(selected);
+            String status = selected.canStage() ? "READY TO STAGE" : downloadable ? "DOWNLOAD AVAILABLE" : "NOT AVAILABLE";
+            draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() || downloadable ? MINT : AMBER);
+            String detail = selected.canStage() ? "ID: " + selected.modId()
+                    : downloadable ? "Public release, 30 MB" : selected.problem();
             draw(g, clip(detail, rightWidth - 22), rightX + 11, y + 110, MUTED);
             if (selected.canStage()) {
                 draw(g, clip("Install required dependencies.", rightWidth - 22), rightX + 11, y + 123, MUTED);
@@ -194,8 +198,10 @@ public final class CloudNineScreen extends Screen {
                 }
             }
         }
-        boolean canStage = selected != null && selected.canStage() && library != null && !staging;
-        button(g, rightX + 10, stageY, rightWidth - 20, 21, staging ? "WORKING..." : "USE FOR NEXT LAUNCH", mouseX, mouseY, canStage);
+        boolean canStage = canUseSelected();
+        boolean download = selected != null && library != null && library.canDownload(selected);
+        button(g, rightX + 10, stageY, rightWidth - 20, 21,
+                staging ? "WORKING..." : download ? "DOWNLOAD & USE" : "USE FOR NEXT LAUNCH", mouseX, mouseY, canStage);
 
         g.fill(x + 14, footerY - 6, x + panelWidth - 14, footerY - 5, 0xFF2A3653);
         boolean hasPending = library != null && library.hasPending();
@@ -229,7 +235,7 @@ public final class CloudNineScreen extends Screen {
                 Util.getPlatform().openFile(library.clientsDir().toFile());
                 message = "Add ZIPs and compiled Fabric JARs, then refresh."; error = false; return true;
             }
-            if (inside(mx, my, rightX + 10, stageY, rightWidth - 20, 21) && selected != null && selected.canStage() && library != null && !staging) {
+            if (inside(mx, my, rightX + 10, stageY, rightWidth - 20, 21) && canUseSelected()) {
                 stageSelected();
                 return true;
             }
@@ -272,18 +278,28 @@ public final class CloudNineScreen extends Screen {
         });
     }
 
+    private boolean canUseSelected() {
+        return selected != null && library != null && !staging && (selected.canStage() || library.canDownload(selected));
+    }
+
     private void stageSelected() {
         LibraryEntry choice = selected;
         staging = true;
         error = false;
         CompletableFuture.runAsync(() -> {
-            try { library.stage(choice); }
-            catch (IOException e) { throw new CompletionException(e); }
+            try {
+                if (library.canDownload(choice)) library.downloadAndStage(choice);
+                else library.stage(choice);
+            } catch (IOException e) { throw new CompletionException(e); }
         }).whenComplete((ignored, failure) -> {
             if (minecraft == null) return;
             minecraft.execute(() -> {
                 staging = false;
-                if (failure == null) { message = "Quit, wait 5 seconds, then relaunch your selected client."; error = false; }
+                if (failure == null) {
+                    reload();
+                    message = "Quit, wait 5 seconds, then relaunch your selected client.";
+                    error = false;
+                }
                 else {
                     Throwable cause = failure.getCause() == null ? failure : failure.getCause();
                     message = "Could not stage: " + cause.getMessage(); error = true;
@@ -306,7 +322,7 @@ public final class CloudNineScreen extends Screen {
             }
             return true;
         }
-        if (!search.isFocused() && event.key() == GLFW.GLFW_KEY_ENTER && selected != null && selected.canStage() && library != null && !staging) {
+        if (!search.isFocused() && event.key() == GLFW.GLFW_KEY_ENTER && canUseSelected()) {
             stageSelected(); return true;
         }
         return super.keyPressed(event);

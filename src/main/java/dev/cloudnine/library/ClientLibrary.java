@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -109,6 +110,30 @@ public final class ClientLibrary {
         entries.sort(Comparator.comparing(LibraryEntry::label, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(LibraryEntry::label));
         return List.copyOf(entries);
+    }
+
+    /** Only an explicitly selected, pinned public release can be downloaded. */
+    public boolean canDownload(LibraryEntry entry) {
+        return !entry.canStage() && DriveCatalog.downloadFor(entry.label())
+                .filter(release -> !Files.exists(clientsDir.resolve(release.fileName()), LinkOption.NOFOLLOW_LINKS))
+                .isPresent();
+    }
+
+    public synchronized void downloadAndStage(LibraryEntry entry) throws IOException {
+        DriveCatalog.Download release = DriveCatalog.downloadFor(entry.label())
+                .filter(ignored -> canDownload(entry))
+                .orElseThrow(() -> new IOException("No downloadable release is available for this entry."));
+        Path destination = clientsDir.resolve(release.fileName());
+        Path temporary = Files.createTempFile(clientsDir, ".cloudnine-download-", ".tmp");
+        try {
+            PinnedDownload.fetch(release, temporary);
+            LibraryEntry checked = inspector.inspect(temporary, release.label());
+            if (!checked.canStage() || !release.modId().equals(checked.modId())) {
+                throw new IOException("Downloaded release did not contain the expected Fabric mod.");
+            }
+            Files.move(temporary, destination); // Never overwrite a user's file.
+            stage(inspector.inspect(destination, release.label()));
+        } finally { Files.deleteIfExists(temporary); }
     }
 
     public synchronized void stage(LibraryEntry entry) throws IOException {

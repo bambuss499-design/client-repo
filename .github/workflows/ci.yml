@@ -78,7 +78,8 @@ jobs:
             --target "$GITHUB_SHA" --prerelease \
             --title "Cloud Nine 0.3.0 prototype (Minecraft 1.21.11)" \
             --notes-file - <<'NOTES'
-          **Prototype only.** The requested Drive clients are not included.
+          **Prototype only.** Dgclient can be downloaded from its published release on selection;
+          the other requested Drive clients are not included.
 
           Requires Minecraft Java 1.21.11, Java 21, Fabric Loader 0.19.3 or newer, and Fabric API.
           Put the JAR in your mods folder and press Left Alt. Add trusted compiled Fabric JARs to

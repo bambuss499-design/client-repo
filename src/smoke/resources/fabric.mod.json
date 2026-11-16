@@ -10,7 +10,6 @@
     ]
   },
   "depends": {
-    "cloudnine": "*",
     "fabric-api": "*",
     "minecraft": "1.21.11"
   }
