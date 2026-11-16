@@ -8,7 +8,7 @@ export ALSOFT_DRIVERS=null
 game=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cloudnine-smoke-XXXXXX")
 export CLOUDNINE_SMOKE_DIR="$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
-cp 'build/libs/cloudnine-0.3.0.jar' "$game/mods/cloudnine-0.3.0.jar"
+cp 'build/libs/cloudnine-0.3.1.jar' "$game/mods/cloudnine-0.3.1.jar"
 target=${CLOUDNINE_SMOKE_TARGET:-fixture}
 if [[ "$target" == fixture ]]; then
   cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/smoke/Moonlit Fixture.jar"
@@ -81,11 +81,11 @@ cp "$game/screenshots/cloudnine-smoke.png" build/cloudnine-screen.png
 # The independent helper must move the selector out of mods and activate the
 # chosen client plus the temporary return guard only after this JVM exits.
 for ((i=0; i<150; i++)); do
-  if [[ ! -f "$game/mods/cloudnine-0.3.0.jar" ]] && compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+  if [[ ! -f "$game/mods/cloudnine-0.3.1.jar" ]] && compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
       && compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then break; fi
   sleep 0.2
 done
-if [[ -f "$game/mods/cloudnine-0.3.0.jar" ]] || ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+if [[ -f "$game/mods/cloudnine-0.3.1.jar" ]] || ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
     || ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
   echo 'One-session handoff did not prepare correctly'; cat "$game/cloudnine/handoff.log" || true; exit 1
 fi
@@ -93,11 +93,11 @@ fi
 launch loaded
 finish loaded
 for ((i=0; i<150; i++)); do
-  if [[ -f "$game/mods/cloudnine-0.3.0.jar" ]] && ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+  if [[ -f "$game/mods/cloudnine-0.3.1.jar" ]] && ! compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
       && ! compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then break; fi
   sleep 0.2
 done
-if [[ ! -f "$game/mods/cloudnine-0.3.0.jar" ]] || compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
+if [[ ! -f "$game/mods/cloudnine-0.3.1.jar" ]] || compgen -G "$game/mods/cloudnine-once-*.jar" >/dev/null \
     || compgen -G "$game/mods/cloudnine-return-*.jar" >/dev/null; then
   echo 'One-shot handoff did not restore the selector after the game exited'
   cat "$game/cloudnine/handoff.log" || true

@@ -58,7 +58,7 @@ public final class HandoffHelper {
         Path staged = mods.resolve("cloudnine-once-" + id + ".jar");
         Path guardian = handoff.resolve("guardian-" + id + ".jar");
         Path activeGuardian = mods.resolve("cloudnine-return-" + id + ".jar");
-        verifyMainAndSelected(game, p, main, held);
+        verifyMainAndSelected(game, p, main, held, false);
         requireHash(guardian, p.getProperty("guardianSha256"));
         requireAbsent(disabled); requireAbsent(staged); requireAbsent(activeGuardian);
         boolean movedMain = false, movedSelected = false;
@@ -90,13 +90,17 @@ public final class HandoffHelper {
         Path staged = mods.resolve("cloudnine-once-" + id + ".jar");
         Path guardian = handoff.resolve("guardian-" + id + ".jar");
         Path activeGuardian = mods.resolve("cloudnine-return-" + id + ".jar");
-        verifyMainAndSelected(game, p, disabled, staged);
+        // Some clients remove their own staged JAR when they exit. Its absence
+        // is safe; a present but modified file is still never touched.
+        verifyMainAndSelected(game, p, disabled, staged, true);
         requireHash(activeGuardian, p.getProperty("guardianSha256"));
         requireAbsent(main); requireAbsent(held); requireAbsent(guardian);
         boolean movedSelected = false, movedGuard = false;
         try {
-            Files.move(staged, held);
-            movedSelected = true;
+            if (Files.exists(staged, LinkOption.NOFOLLOW_LINKS)) {
+                Files.move(staged, held);
+                movedSelected = true;
+            }
             Files.move(activeGuardian, guardian);
             movedGuard = true;
             Files.move(disabled, main);
@@ -107,7 +111,7 @@ public final class HandoffHelper {
         }
         // These are all generated, hash-verified Cloud Nine files. A failed deletion
         // leaves recoverable data outside mods rather than loading two clients.
-        Files.delete(held);
+        if (movedSelected) Files.delete(held);
         Files.delete(guardian);
         Files.deleteIfExists(game.resolve("cloudnine/managed/" + id + ".properties"));
         Files.delete(statePath(game));
@@ -127,9 +131,13 @@ public final class HandoffHelper {
         return p;
     }
 
-    private static void verifyMainAndSelected(Path game, Properties p, Path main, Path selected) throws IOException {
+    private static void verifyMainAndSelected(Path game, Properties p, Path main, Path selected, boolean allowMissing) throws IOException {
         requireHash(main, p.getProperty("mainSha256"));
-        requireHash(selected, p.getProperty("selectedSha256"));
+        if (!allowMissing || Files.exists(selected, LinkOption.NOFOLLOW_LINKS)) {
+            requireHash(selected, p.getProperty("selectedSha256"));
+        } else if (!p.getProperty("selectedSha256", "").matches("[0-9a-f]{64}")) {
+            throw new IOException("Invalid selection checksum");
+        }
         Path marker = game.resolve("cloudnine/managed/" + p.getProperty("id") + ".properties");
         if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS) || Files.size(marker) > 65536
                 || !p.getProperty("selectedSha256", "").equals(readProperties(marker).getProperty("sha256"))) {

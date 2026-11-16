@@ -26,7 +26,7 @@ final class SessionSwitch {
             {"schemaVersion":1,"id":"cloudnine_return","version":"1.0.0",
              "name":"Cloud Nine return helper","environment":"client",
              "entrypoints":{"preLaunch":["dev.cloudnine.guardian.ReturnGuard"]},
-             "depends":{"fabricloader":">=0.19.3","java":">=21"}}
+             "depends":{"fabricloader":">=0.19.5","java":">=21"}}
             """;
     private final Path game;
     private final Path self;

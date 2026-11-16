@@ -165,10 +165,11 @@ public final class CloudNineScreen extends Screen {
                 draw(g, clip(initial, 8), leftX + 19, rowY + 12, WHITE);
                 draw(g, clip(entry.label(), leftWidth - 57), leftX + 40, rowY + 6, WHITE);
                 boolean downloadable = library != null && library.canDownload(entry);
-                String sub = !entry.canStage() ? downloadable ? "DOWNLOAD AVAILABLE" : "NOT READY"
+                boolean importable = library != null && library.canImport(entry);
+                String sub = !entry.canStage() ? downloadable ? "DOWNLOAD AVAILABLE" : importable ? "IMPORT AVAILABLE" : "NOT READY"
                         : library != null && library.isPending(entry) ? "NEXT LAUNCH"
                         : library != null && library.isActive(entry) ? "ACTIVE THIS SESSION" : "FABRIC  ·  1.21.11";
-                draw(g, clip(sub, leftWidth - 57), leftX + 40, rowY + 19, entry.canStage() || downloadable ? MUTED : AMBER);
+                draw(g, clip(sub, leftWidth - 57), leftX + 40, rowY + 19, entry.canStage() || downloadable || importable ? MUTED : AMBER);
             }
             if (visible.size() > visibleRows()) draw(g, "SCROLL", leftX + leftWidth - 44, listBottom - 10, MUTED);
         }
@@ -183,10 +184,12 @@ public final class CloudNineScreen extends Screen {
         } else {
             draw(g, clip(selected.label(), rightWidth - 22), rightX + 11, y + 80, WHITE);
             boolean downloadable = library != null && library.canDownload(selected);
-            String status = selected.canStage() ? "READY TO STAGE" : downloadable ? "DOWNLOAD AVAILABLE" : "NOT AVAILABLE";
-            draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() || downloadable ? MINT : AMBER);
+            boolean importable = library != null && library.canImport(selected);
+            String status = selected.canStage() ? "READY TO STAGE" : downloadable ? "DOWNLOAD AVAILABLE"
+                    : importable ? "IMPORT AVAILABLE" : "NOT AVAILABLE";
+            draw(g, clip(status, rightWidth - 22), rightX + 11, y + 95, selected.canStage() || downloadable || importable ? MINT : AMBER);
             String detail = selected.canStage() ? "ID: " + selected.modId()
-                    : downloadable ? "Public release, 30 MB" : selected.problem();
+                    : downloadable ? "Public release, 30 MB" : importable ? "Import the JAR from your ZIP" : selected.problem();
             draw(g, clip(detail, rightWidth - 22), rightX + 11, y + 110, MUTED);
             if (selected.canStage()) {
                 draw(g, clip("Install required dependencies.", rightWidth - 22), rightX + 11, y + 123, MUTED);
@@ -200,8 +203,10 @@ public final class CloudNineScreen extends Screen {
         }
         boolean canStage = canUseSelected();
         boolean download = selected != null && library != null && library.canDownload(selected);
+        boolean importable = selected != null && library != null && library.canImport(selected);
         button(g, rightX + 10, stageY, rightWidth - 20, 21,
-                staging ? "WORKING..." : download ? "DOWNLOAD & USE" : "USE FOR NEXT LAUNCH", mouseX, mouseY, canStage);
+                staging ? "WORKING..." : download ? "DOWNLOAD & USE" : importable ? "IMPORT & USE" : "USE FOR NEXT LAUNCH",
+                mouseX, mouseY, canStage);
 
         g.fill(x + 14, footerY - 6, x + panelWidth - 14, footerY - 5, 0xFF2A3653);
         boolean hasPending = library != null && library.hasPending();
@@ -279,7 +284,7 @@ public final class CloudNineScreen extends Screen {
     }
 
     private boolean canUseSelected() {
-        return selected != null && library != null && !staging && (selected.canStage() || library.canDownload(selected));
+        return selected != null && library != null && !staging && (selected.canStage() || library.canDownload(selected) || library.canImport(selected));
     }
 
     private void stageSelected() {
@@ -289,6 +294,7 @@ public final class CloudNineScreen extends Screen {
         CompletableFuture.runAsync(() -> {
             try {
                 if (library.canDownload(choice)) library.downloadAndStage(choice);
+                else if (library.canImport(choice)) library.importAndStage(choice);
                 else library.stage(choice);
             } catch (IOException e) { throw new CompletionException(e); }
         }).whenComplete((ignored, failure) -> {

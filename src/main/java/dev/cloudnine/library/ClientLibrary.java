@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.time.Instant;
 
 /** Owns a library inside a single Minecraft game directory. */
@@ -114,9 +116,48 @@ public final class ClientLibrary {
 
     /** Only an explicitly selected, pinned public release can be downloaded. */
     public boolean canDownload(LibraryEntry entry) {
-        return !entry.canStage() && DriveCatalog.downloadFor(entry.label())
+        return isAvailableSource(entry) && DriveCatalog.downloadFor(entry.label())
                 .filter(release -> !Files.exists(clientsDir.resolve(release.fileName()), LinkOption.NOFOLLOW_LINKS))
                 .isPresent();
+    }
+
+    public boolean canImport(LibraryEntry entry) {
+        return isAvailableSource(entry) && Files.isRegularFile(entry.file(), LinkOption.NOFOLLOW_LINKS)
+                && DriveCatalog.importFor(entry.label())
+                .filter(release -> !Files.exists(clientsDir.resolve(release.fileName()), LinkOption.NOFOLLOW_LINKS))
+                .isPresent();
+    }
+
+    private boolean isAvailableSource(LibraryEntry entry) {
+        return !entry.canStage() && entry.problem() != null && !entry.problem().startsWith("Ambiguous")
+                && clientsDir.equals(entry.file().toAbsolutePath().normalize().getParent())
+                && entry.file().getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip");
+    }
+
+    /** Extract only a specifically identified embedded JAR, never archive paths. */
+    public synchronized void importAndStage(LibraryEntry entry) throws IOException {
+        DriveCatalog.Import release = DriveCatalog.importFor(entry.label())
+                .filter(ignored -> canImport(entry))
+                .orElseThrow(() -> new IOException("No known embedded client is available in this archive."));
+        Path destination = clientsDir.resolve(release.fileName());
+        Path temporary = Files.createTempFile(clientsDir, ".cloudnine-import-", ".tmp");
+        try {
+            try (ZipFile archive = new ZipFile(entry.file().toFile())) {
+                ZipEntry member = archive.getEntry(release.member());
+                if (member == null || member.isDirectory() || member.getSize() != release.size()) {
+                    throw new IOException("The archive does not contain the expected Corz client JAR.");
+                }
+                try (var input = archive.getInputStream(member)) {
+                    PinnedDownload.copyVerified(input, temporary, release.size(), release.sha256());
+                }
+            }
+            LibraryEntry checked = inspector.inspect(temporary, release.label());
+            if (!checked.canStage() || !release.modId().equals(checked.modId())) {
+                throw new IOException("The embedded JAR did not contain the expected Fabric mod.");
+            }
+            Files.move(temporary, destination);
+            stage(inspector.inspect(destination, release.label()));
+        } finally { Files.deleteIfExists(temporary); }
     }
 
     public synchronized void downloadAndStage(LibraryEntry entry) throws IOException {

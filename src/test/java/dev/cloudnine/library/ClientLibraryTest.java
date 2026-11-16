@@ -64,6 +64,29 @@ class ClientLibraryTest {
         assertTrue(library.scan().stream().noneMatch(library::canDownload));
     }
 
+    @Test void corzImportRejectsAnUnexpectedArchiveWithoutOverwritingFiles() throws Exception {
+        ClientLibrary library = new ClientLibrary(game);
+        Path dir = game.resolve("cloudnine/clients");
+        LibraryEntry missing = library.scan().stream().filter(e -> e.label().equals("CorzClient.zip")).findFirst().orElseThrow();
+        assertFalse(library.canImport(missing));
+        try (ZipOutputStream archive = new ZipOutputStream(Files.newOutputStream(dir.resolve("CorzClient.zip")))) {
+            archive.putNextEntry(new ZipEntry(DriveCatalog.CORZ.member()));
+            archive.write("wrong jar".getBytes(StandardCharsets.UTF_8));
+            archive.closeEntry();
+            archive.putNextEntry(new ZipEntry("../outside.txt"));
+            archive.write("never extracted".getBytes(StandardCharsets.UTF_8));
+            archive.closeEntry();
+        }
+        LibraryEntry entry = library.scan().stream().filter(e -> e.label().equals("CorzClient.zip")).findFirst().orElseThrow();
+        assertTrue(library.canImport(entry));
+        assertThrows(IOException.class, () -> library.importAndStage(entry));
+        assertFalse(Files.exists(dir.resolve("CorzClient.jar")));
+        assertFalse(Files.exists(game.resolve("cloudnine/outside.txt")));
+        try (var files = Files.list(dir)) {
+            assertTrue(files.noneMatch(p -> p.getFileName().toString().startsWith(".cloudnine-import-")));
+        }
+    }
+
     @Test void catalogNamePairsWithMatchingJarEvenWithoutSourceZip() throws Exception {
         jar("Anubis.jar", metadata("anubis", "1.21.11"));
         List<LibraryEntry> entries = new ClientLibrary(game).scan();

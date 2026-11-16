@@ -70,6 +70,15 @@ class HandoffHelperTest {
         assertTrue(Files.exists(game.resolve("cloudnine/handoff/disabled-" + id + ".jar.off")));
     }
 
+    @Test void restoresWhenTheSelectedClientAlreadyDeletedItsOwnCopy() throws Exception {
+        String id = prepareFiles();
+        HandoffHelper.prepare(game);
+        Files.delete(game.resolve("mods/cloudnine-once-" + id + ".jar"));
+        HandoffHelper.restore(game, id);
+        assertEquals("selector", Files.readString(game.resolve("mods/Cloud Nine.jar")));
+        assertFalse(Files.exists(game.resolve("mods/cloudnine-return-" + id + ".jar")));
+    }
+
     @Test void refusesToOverwriteAReplacementSelector() throws Exception {
         String id = prepareFiles();
         HandoffHelper.prepare(game);
