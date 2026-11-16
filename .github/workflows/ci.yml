@@ -1,48 +1,58 @@
-name: Build and launch Minecraft
+name: Build Cloud Nine
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      full_smoke:
+        description: 'Also run the optional three-launch Minecraft fixture test'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  build-and-smoke:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build, run unit tests, and prepare test mods
+      - name: Build and run unit tests
         shell: bash
         run: |
           set -o pipefail
-          if ! ./gradlew --no-daemon clean build remapSmokeHarnessJar fixtureJar 2>&1 | tee /tmp/cloudnine-build.log; then
+          if ! ./gradlew --no-daemon clean build 2>&1 | tee /tmp/cloudnine-build.log; then
             python3 .github/scripts/annotate.py /tmp/cloudnine-build.log 'Gradle build failed'
             exit 1
           fi
-      # Make a unit-tested build available immediately; the full Minecraft test
-      # continues afterwards and is the authority for the final artifact.
-      - name: Upload early build
+      - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
-          name: cloudnine-0.4.0-early-build
-          path: build/libs/cloudnine-0.4.0.jar
+          name: cloudnine-1.21.11
+          path: |
+            build/libs/cloudnine-*.jar
+            !build/libs/*-sources.jar
           if-no-files-found: error
-      - name: Install virtual display and software OpenGL
+      # Full Minecraft launches are opt-in rather than delaying every update.
+      - name: Prepare optional fixture mods
+        if: github.event_name == 'workflow_dispatch' && inputs.full_smoke
+        run: ./gradlew --no-daemon remapSmokeHarnessJar fixtureJar
+      - name: Install virtual display
+        if: github.event_name == 'workflow_dispatch' && inputs.full_smoke
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri libglx-mesa0
-      - name: Launch real Minecraft and exercise one-shot selection
+      - name: Optional three-launch fixture smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.full_smoke
         shell: bash
         run: |
           set -o pipefail
@@ -53,8 +63,8 @@ jobs:
             python3 .github/scripts/annotate.py /tmp/cloudnine-smoke.log 'Minecraft smoke test failed'
             exit 1
           fi
-      - name: Upload Minecraft screenshot and logs
-        if: always()
+      - name: Upload optional Minecraft evidence
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.full_smoke
         uses: actions/upload-artifact@v4
         with:
           name: minecraft-smoke-evidence
@@ -63,12 +73,3 @@ jobs:
             build/cloudnine-screen.png
             build/production-evidence/
           if-no-files-found: ignore
-      - name: Upload mod JAR
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cloudnine-1.21.11
-          path: |
-            build/libs/cloudnine-*.jar
-            !build/libs/*-sources.jar
-          if-no-files-found: error

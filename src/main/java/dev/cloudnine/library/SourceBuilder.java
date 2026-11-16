@@ -106,8 +106,15 @@ final class SourceBuilder {
                 throw new IOException("Build did not produce the expected remapped JAR.");
             }
             if (Files.size(built) > MAX_OUTPUT_BYTES) throw new IOException("Built JAR is too large.");
+            Path packaged = built;
+            if ("aetherclient".equals(source.modId())) {
+                status = "Packaging the compiled Corz bridge...";
+                packaged = DgBridgePackager.complete(built, project, work);
+                if (!packaged.equals(built)) append(log, "Added missing classes compiled from the Corz bridge source.\n");
+            }
+            if (Files.size(packaged) > MAX_OUTPUT_BYTES) throw new IOException("Built JAR is too large.");
             temporaryJar = Files.createTempFile(clientsDir, ".cloudnine-build-", ".tmp");
-            Files.copy(built, temporaryJar, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(packaged, temporaryJar, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             validateOutput(temporaryJar, source, inspector);
             Path destination = clientsDir.resolve(source.jarName());
             Files.move(temporaryJar, destination); // No replacement, even on an existing invalid JAR.
@@ -138,6 +145,7 @@ final class SourceBuilder {
             if (mainClass == null || mainClass.isDirectory() || mainClass.getSize() == 0) {
                 throw new IOException("Built JAR is missing its expected client class.");
             }
+            if ("aetherclient".equals(source.modId())) DgBridgePackager.validate(zip);
         }
     }
 
