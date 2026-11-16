@@ -40,7 +40,7 @@ class ClientLibraryTest {
     @Test void sortsAndNamesEntriesFromFilesAndRejectsWrongVersion() throws Exception {
         jar("Zeta Client.jar", metadata("zeta_client", "1.21.11"));
         jar("Alpha Client.jar", metadata("alpha_client", "1.20.1"));
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = library.scan();
         assertEquals(List.of("Alpha Client", "Zeta Client"), entries.stream().map(LibraryEntry::label).toList());
         assertFalse(entries.get(0).canStage());
@@ -49,11 +49,34 @@ class ClientLibraryTest {
         assertEquals(List.of("fabric-api"), entries.get(1).dependencies());
     }
 
+    @Test void confirmedDriveCatalogIsVisibleEvenInAnEmptyLibrary() throws Exception {
+        ClientLibrary library = new ClientLibrary(game);
+        List<LibraryEntry> entries = library.scan();
+        assertEquals(DriveCatalog.NAMES, entries.stream().map(LibraryEntry::label).toList());
+        assertTrue(entries.stream().noneMatch(LibraryEntry::canStage));
+    }
+
+    @Test void catalogNamePairsWithMatchingJarEvenWithoutSourceZip() throws Exception {
+        jar("Anubis.jar", metadata("anubis", "1.21.11"));
+        List<LibraryEntry> entries = new ClientLibrary(game).scan();
+        assertEquals(7, entries.size());
+        LibraryEntry anubis = entries.stream().filter(e -> e.label().equals("Anubis.zip")).findFirst().orElseThrow();
+        assertTrue(anubis.canStage());
+        assertEquals("Anubis.jar", anubis.file().getFileName().toString());
+    }
+
+    @Test void anActualCatalogZipDoesNotDuplicateItsPlaceholder() throws Exception {
+        Path dir = game.resolve("cloudnine/clients");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("Anubis.zip"), "archive");
+        assertEquals(7, new ClientLibrary(game).scan().size());
+    }
+
     @Test void sourceArchiveIsListedByExactNameButCannotBeExecuted() throws Exception {
         Path dir = game.resolve("cloudnine/clients");
         Files.createDirectories(dir);
         Path archive = Files.writeString(dir.resolve("My Source.ZIP"), "untrusted archive, never opened");
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         LibraryEntry entry = library.scan().get(0);
         assertEquals("My Source.ZIP", entry.label());
         assertFalse(entry.canStage());
@@ -65,7 +88,7 @@ class ClientLibraryTest {
     @Test void matchingCompiledJarUsesAndRetainsTheZipName() throws Exception {
         Path jar = jar("anubis.jar", metadata("anubis", "1.21.11"));
         Files.writeString(game.resolve("cloudnine/clients/Anubis.zip"), "source archive");
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = library.scan();
         assertEquals(1, entries.size());
         LibraryEntry entry = entries.get(0);
@@ -83,7 +106,7 @@ class ClientLibraryTest {
         Path second = jar("foo.JAR", metadata("foo_two", "1.21.11"));
         Assumptions.assumeFalse(Files.isSameFile(first, second), "Requires a case-sensitive filesystem");
         Files.writeString(game.resolve("cloudnine/clients/Foo.zip"), "source archive");
-        List<LibraryEntry> entries = new ClientLibrary(game).scan();
+        List<LibraryEntry> entries = new ClientLibrary(game, List.of()).scan();
         LibraryEntry source = entries.stream().filter(entry -> entry.label().equals("Foo.zip")).findFirst().orElseThrow();
         assertFalse(source.canStage());
         assertTrue(source.problem().contains("Ambiguous"));
@@ -93,7 +116,7 @@ class ClientLibraryTest {
     @Test void pairedJarStillRequiresCompatibleFabricMetadata() throws Exception {
         jar("Old.jar", metadata("old_client", "1.20.1"));
         Files.writeString(game.resolve("cloudnine/clients/Old.zip"), "source archive");
-        LibraryEntry entry = new ClientLibrary(game).scan().get(0);
+        LibraryEntry entry = new ClientLibrary(game, List.of()).scan().get(0);
         assertEquals("Old.zip", entry.label());
         assertFalse(entry.canStage());
         assertTrue(entry.problem().contains("1.21.11"));
@@ -107,7 +130,7 @@ class ClientLibraryTest {
         }
         jar("server.jar", "{\"schemaVersion\":1,\"id\":\"servermod\",\"version\":\"1\",\"environment\":\"server\"}");
         jar("self.jar", metadata("cloudnine", "*"));
-        assertTrue(new ClientLibrary(game).scan().stream().noneMatch(LibraryEntry::canStage));
+        assertTrue(new ClientLibrary(game, List.of()).scan().stream().noneMatch(LibraryEntry::canStage));
     }
 
     @Test void selectingAndReplacingOnlyTouchesManagedFiles() throws Exception {
@@ -117,7 +140,7 @@ class ClientLibraryTest {
         Files.createDirectories(mods);
         Path unrelated = mods.resolve("my-important-mod.jar");
         Files.writeString(unrelated, "leave me alone");
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = library.scan();
         library.stage(entries.get(0));
         assertTrue(library.hasPending());
@@ -135,7 +158,7 @@ class ClientLibraryTest {
     @Test void concurrentSelectionsStillLeaveOnlyOnePendingCopy() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
         jar("Two.jar", metadata("client_two", "1.21.11"));
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = library.scan();
         try (var executor = Executors.newFixedThreadPool(2)) {
             for (int round = 0; round < 12; round++) {
@@ -154,9 +177,9 @@ class ClientLibraryTest {
     @Test void nextSessionIsRecognizedAndStagingAnotherDoesNotRemoveActive() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
         jar("Two.jar", metadata("client_two", "1.21.11"));
-        ClientLibrary first = new ClientLibrary(game);
+        ClientLibrary first = new ClientLibrary(game, List.of());
         first.stage(first.scan().get(0));
-        ClientLibrary nextSession = new ClientLibrary(game);
+        ClientLibrary nextSession = new ClientLibrary(game, List.of());
         List<LibraryEntry> entries = nextSession.scan();
         assertTrue(nextSession.isActive(entries.get(0)));
         nextSession.stage(entries.get(1));
@@ -168,7 +191,7 @@ class ClientLibraryTest {
 
     @Test void cleanupRefusesChangedOrUnownedFiles() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         library.stage(library.scan().get(0));
         Path staged = managedJars(game.resolve("mods")).get(0);
         String id = staged.getFileName().toString().substring(ManagedFiles.PREFIX.length(), staged.getFileName().toString().length() - 4);
@@ -181,7 +204,7 @@ class ClientLibraryTest {
 
     @Test void cleanupDeletesOnlyUntouchedManagedCopy() throws Exception {
         jar("One.jar", metadata("client_one", "1.21.11"));
-        ClientLibrary library = new ClientLibrary(game);
+        ClientLibrary library = new ClientLibrary(game, List.of());
         library.stage(library.scan().get(0));
         Path staged = managedJars(game.resolve("mods")).get(0);
         String id = staged.getFileName().toString().substring(ManagedFiles.PREFIX.length(), staged.getFileName().toString().length() - 4);
@@ -193,7 +216,7 @@ class ClientLibraryTest {
     @Test void arrayVersionPredicatesAreAnAlternativeNotAConjunction() throws Exception {
         jar("Options.jar", "{\"schemaVersion\":1,\"id\":\"options_mod\",\"version\":\"1\","
                 + "\"depends\":{\"minecraft\":[\"1.20.1\",\"~1.21.11\"]}}");
-        assertTrue(new ClientLibrary(game).scan().get(0).canStage());
+        assertTrue(new ClientLibrary(game, List.of()).scan().get(0).canStage());
     }
 
     private static List<Path> managedJars(Path dir) throws IOException {

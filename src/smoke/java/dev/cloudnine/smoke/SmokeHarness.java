@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.AccessibilityOnboardingScreen;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWKeyCallback;
@@ -60,9 +61,9 @@ public final class SmokeHarness implements ClientModInitializer {
                 if (client.screen instanceof TitleScreen && client.getOverlay() == null) {
                     if (!wroteTitle) { Files.writeString(output.resolve("title-ready"), "ready\n"); wroteTitle = true; }
                     if (phase.equals("stage") && !sentKey && ++titleTicks >= 25) {
-                        pressRightAlt(client.getWindow().handle());
+                        pressLeftAlt(client.getWindow().handle());
                         sentKey = true;
-                        System.out.println("CLOUDNINE_SMOKE: sent Right Alt through Minecraft's GLFW callback");
+                        System.out.println("CLOUDNINE_SMOKE: sent Left Alt through Minecraft's GLFW callback");
                     }
                     if (exitCountdown < 0 && phase.equals("loaded")) {
                         if (!FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
@@ -80,6 +81,15 @@ public final class SmokeHarness implements ClientModInitializer {
                 if (phase.equals("stage") && client.getOverlay() == null && client.screen instanceof CloudNineScreen screen) {
                     screenTicks++;
                     double scale = client.getWindow().getGuiScale();
+                    if (screenTicks == 5) {
+                        @SuppressWarnings("unchecked")
+                        var entries = (java.util.List<LibraryEntry>) field(screen, "entries");
+                        var labels = entries.stream().map(LibraryEntry::label).toList();
+                        var expected = java.util.List.of("67Client.zip", "Anubis.zip", "CorzClient.zip", "Dgclient.zip", "Gooba.zip", "Krispy.zip", "Waterv7.zip");
+                        if (!labels.containsAll(expected)) throw new IllegalStateException("Drive catalog missing entries: " + labels);
+                        // Filter for the synthetic fixture; the row and buttons are still driven by GLFW.
+                        ((EditBox) field(screen, "search")).setValue("Moonlit");
+                    }
                     if (screenTicks == 10) {
                         click(client.getWindow().handle(), screen.firstRowCenterX() * scale, screen.firstRowCenterY() * scale);
                         System.out.println("CLOUDNINE_SMOKE: requested row click at " + screen.firstRowCenterX() + "," + screen.firstRowCenterY() + " scale=" + scale);
@@ -119,7 +129,7 @@ public final class SmokeHarness implements ClientModInitializer {
                         try (var files = Files.list(game.resolve("mods"))) {
                             if (files.anyMatch(path -> path.getFileName().toString().startsWith("cloudnine-once-")
                                     && path.toString().endsWith(".jar"))) {
-                                Files.writeString(output.resolve("stage"), "Right Alt and UI click staged the fixture\n");
+                                Files.writeString(output.resolve("stage"), "Left Alt and UI click staged the fixture\n");
                                 exitCountdown = 60;
                             }
                         }
@@ -139,12 +149,12 @@ public final class SmokeHarness implements ClientModInitializer {
         return field.get(object);
     }
 
-    private static void pressRightAlt(long window) {
+    private static void pressLeftAlt(long window) {
         GLFWKeyCallback callback = GLFW.glfwSetKeyCallback(window, null);
         if (callback == null) throw new IllegalStateException("Minecraft did not register a key callback");
         GLFW.glfwSetKeyCallback(window, callback);
-        callback.invoke(window, GLFW.GLFW_KEY_RIGHT_ALT, 0, GLFW.GLFW_PRESS, GLFW.GLFW_MOD_ALT);
-        callback.invoke(window, GLFW.GLFW_KEY_RIGHT_ALT, 0, GLFW.GLFW_RELEASE, 0);
+        callback.invoke(window, GLFW.GLFW_KEY_LEFT_ALT, 0, GLFW.GLFW_PRESS, GLFW.GLFW_MOD_ALT);
+        callback.invoke(window, GLFW.GLFW_KEY_LEFT_ALT, 0, GLFW.GLFW_RELEASE, 0);
     }
 
     private static void click(long window, double x, double y) {

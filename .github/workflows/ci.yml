@@ -81,7 +81,7 @@ jobs:
           **Prototype only.** The requested Drive clients are not included.
 
           Requires Minecraft Java 1.21.11, Java 21, Fabric Loader 0.19.3 or newer, and Fabric API.
-          Put the JAR in your mods folder and press Right Alt. Add trusted compiled Fabric JARs to
+          Put the JAR in your mods folder and press Left Alt. Add trusted compiled Fabric JARs to
           the library folder. A source ZIP and matching JAR with the same basename appear under the
           exact ZIP filename; a source ZIP alone cannot be run. Select a JAR, quit, and restart
           Minecraft to use it for one session.

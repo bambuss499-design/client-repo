@@ -1,6 +1,6 @@
 # Cloud Nine — Fabric client selector (prototype)
 
-A celestial, restart-based client library for **Minecraft Java 1.21.11 / Fabric**. Press **Right Alt** (rebindable in Controls) to open it. Cloud Nine lists source ZIPs by their exact filenames, pairs them with matching compiled Fabric JARs, and stages one for the next launch.
+A celestial, restart-based client library for **Minecraft Java 1.21.11 / Fabric**. Press **Left Alt** (rebindable in Controls) to open it. Cloud Nine shows all seven filenames from the confirmed Drive folder, pairs them with matching compiled Fabric JARs, and stages one for the next launch. The names are a snapshot, not a live Drive connection.
 
 ![Cloud Nine interface, shown with a test fixture](docs/preview.png)
 
@@ -10,7 +10,7 @@ A celestial, restart-based client library for **Minecraft Java 1.21.11 / Fabric*
 
 1. Install Minecraft Java **1.21.11**, Fabric Loader **0.19.3+**, and a matching **Fabric API**. Java 21 is required.
 2. Put the Cloud Nine JAR in that installation's `mods` folder. Start Minecraft once.
-3. Press **Right Alt**, then **OPEN FOLDER**. Put trusted, compiled **Fabric 1.21.11** `.jar` files there and press **REFRESH**. To display a source's exact ZIP filename, place the ZIP alongside a JAR with the same basename (for example `Example.zip` and `Example.jar`). A ZIP without a matching JAR is shown as unavailable; Cloud Nine never executes or builds source archives. A standalone JAR is listed by its filename without `.jar`.
+3. Press **Left Alt**, then **OPEN FOLDER**. The seven Drive filenames are listed automatically, but the clients are not included yet. To make an entry usable, put a trusted, compiled **Fabric 1.21.11** JAR with the matching basename in the folder (for example `Anubis.jar`) and press **REFRESH**. A ZIP or catalog name without a matching JAR is shown as unavailable. Cloud Nine never executes or builds source archives. Standalone JARs and other source ZIPs also appear in the library.
 4. Select a client, press **USE FOR NEXT LAUNCH**, and wait for the restart confirmation. Quit Minecraft, then start the same installation again. Cloud Nine stages only that selected JAR; it does **not** install its dependencies. Check its requirements and install those separately.
 5. The selected copy is meant for one session. A small local Java cleanup helper waits for Minecraft to exit and deletes only Cloud Nine's own unchanged copy. Wait a few seconds before the following launch. The original library JAR is never removed.
 
@@ -28,7 +28,7 @@ If a selected JAR crashes Fabric before Cloud Nine starts, or if a launcher forc
 ./gradlew build
 ```
 
-The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Right Alt and mouse events through Minecraft's GLFW callbacks, selects a ZIP-only fixture, adds its compiled JAR, refreshes while keeping the ZIP name selected, then stages it through the UI and relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
+The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Left Alt and mouse events through Minecraft's GLFW callbacks, selects a ZIP-only fixture, adds its compiled JAR, refreshes while keeping the ZIP name selected, then stages it through the UI and relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
 
 ## Privacy and storage
 

@@ -14,7 +14,7 @@ import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], 'w') as archive:
     archive.writestr('README.txt', 'Synthetic source fixture; not a client.')
 PYCODE
-printf 'version:4671\nguiScale:2\nonboardAccessibility:false\n' > "$game/options.txt"
+printf 'version:4671\nguiScale:2\nonboardAccessibility:false\nkey_key.cloudnine.open:key.keyboard.right.alt\n' > "$game/options.txt"
 
 pid=''
 cleanup() {
@@ -77,4 +77,4 @@ fi
 
 launch empty
 finish empty
-echo 'PASS: Right Alt opened the GUI; selected fixture loaded for one session only.'
+echo 'PASS: Left Alt opened the GUI; selected fixture loaded for one session only.'

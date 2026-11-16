@@ -26,7 +26,9 @@ public final class CloudNineClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         openKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.cloudnine.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_ALT,
+                // A new translation key avoids retaining the prototype's saved Right Alt
+                // default in options.txt when an existing installation upgrades.
+                "key.cloudnine.open_left", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_ALT,
                 KeyMapping.Category.register(Identifier.fromNamespaceAndPath("cloudnine", "main"))));
         try {
             library = new ClientLibrary(Minecraft.getInstance().gameDirectory.toPath());

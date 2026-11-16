@@ -21,11 +21,17 @@ public final class ClientLibrary {
     private final Path clientsDir;
     private final JarInspector inspector = new JarInspector();
     private final ManagedFiles managed;
+    private final List<String> catalogNames;
     private final List<ManagedFiles.Managed> active = new ArrayList<>();
     private volatile ManagedFiles.Managed pending;
 
     public ClientLibrary(Path gameDir) throws IOException {
+        this(gameDir, DriveCatalog.NAMES);
+    }
+
+    ClientLibrary(Path gameDir, List<String> catalogNames) throws IOException {
         this.gameDir = gameDir.toAbsolutePath().normalize();
+        this.catalogNames = List.copyOf(catalogNames);
         clientsDir = this.gameDir.resolve("cloudnine").resolve("clients");
         managed = new ManagedFiles(this.gameDir);
         Files.createDirectories(clientsDir);
@@ -43,8 +49,8 @@ public final class ClientLibrary {
     public Path clientsDir() { return clientsDir; }
 
     public List<LibraryEntry> scan() throws IOException {
-        // A source ZIP is a label, not an executable mod. Pair it only with a unique
-        // compiled JAR of the same basename; never inspect or extract its contents.
+        // A source ZIP or catalog name is a label, not an executable mod. Pair it
+        // only with a unique compiled JAR of the same basename.
         Map<String, List<Path>> archives = new HashMap<>();
         Map<String, List<Path>> jars = new HashMap<>();
         try (DirectoryStream<Path> paths = Files.newDirectoryStream(clientsDir)) {
@@ -58,6 +64,13 @@ public final class ClientLibrary {
                     jars.computeIfAbsent(lower.substring(0, lower.length() - 4), ignored -> new ArrayList<>()).add(path);
                 }
             }
+        }
+
+        // Built-in names are a snapshot of the confirmed Drive folder. They are
+        // placeholders, not clients: no private Drive credentials are embedded.
+        for (String name : catalogNames) {
+            String key = name.toLowerCase(Locale.ROOT).substring(0, name.length() - 4);
+            archives.computeIfAbsent(key, ignored -> List.of(clientsDir.resolve(name)));
         }
 
         List<LibraryEntry> entries = new ArrayList<>();
