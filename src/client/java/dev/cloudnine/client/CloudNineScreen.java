@@ -320,6 +320,8 @@ public final class CloudNineScreen extends Screen {
     // Public geometry also lets a test harness drive the real screen without bypassing input.
     public int firstRowCenterX() { return leftX + leftWidth / 2; }
     public int firstRowCenterY() { return rowsTop + 15; }
+    public int refreshButtonCenterX() { return leftX + leftWidth - 48; }
+    public int refreshButtonCenterY() { return toolbarY + 11; }
     public int stageButtonCenterX() { return rightX + rightWidth / 2; }
     public int stageButtonCenterY() { return stageY + 10; }
 

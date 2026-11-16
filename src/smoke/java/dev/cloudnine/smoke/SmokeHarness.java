@@ -28,6 +28,7 @@ public final class SmokeHarness implements ClientModInitializer {
     private boolean sentKey;
     private boolean wroteTitle;
     private boolean dismissedWelcome;
+    private boolean fixturePrepared;
 
     @Override public void onInitializeClient() {
         if (phase.isBlank()) return;
@@ -83,25 +84,35 @@ public final class SmokeHarness implements ClientModInitializer {
                         click(client.getWindow().handle(), screen.firstRowCenterX() * scale, screen.firstRowCenterY() * scale);
                         System.out.println("CLOUDNINE_SMOKE: requested row click at " + screen.firstRowCenterX() + "," + screen.firstRowCenterY() + " scale=" + scale);
                     }
-                    if (screenTicks == 15) {
-                        Screenshot.grab(client.gameDirectory, "cloudnine-smoke.png", client.getMainRenderTarget(), 1,
-                                result -> System.out.println("CLOUDNINE_SMOKE screenshot: " + result.getString()));
-                    }
                     if (screenTicks == 20) {
                         Object selected = field(screen, "selected");
-                        System.out.println("CLOUDNINE_SMOKE: library entries=" + field(screen, "entries"));
-                        System.out.println("CLOUDNINE_SMOKE: loader game=" + game + " minecraft game=" + client.gameDirectory
-                                + " fixture exists=" + Files.exists(game.resolve("cloudnine/clients/Moonlit Fixture.jar")));
-                        System.out.println("CLOUDNINE_SMOKE: selection=" + selected);
-                        if (!(selected instanceof LibraryEntry entry) || !entry.label().equals("Moonlit Fixture.zip")) {
-                            throw new IllegalStateException("Fixture row did not preserve and select the source ZIP name");
+                        System.out.println("CLOUDNINE_SMOKE: source selection=" + selected);
+                        if (!(selected instanceof LibraryEntry entry) || !entry.label().equals("Moonlit Fixture.zip") || entry.canStage()) {
+                            throw new IllegalStateException("A source ZIP alone must be selected but not executable");
+                        }
+                        Files.copy(game.resolve("cloudnine/smoke/Moonlit Fixture.jar"),
+                                game.resolve("cloudnine/clients/Moonlit Fixture.jar"));
+                        click(client.getWindow().handle(), screen.refreshButtonCenterX() * scale, screen.refreshButtonCenterY() * scale);
+                        System.out.println("CLOUDNINE_SMOKE: added compiled fixture and requested refresh");
+                        fixturePrepared = true;
+                    }
+                    if (screenTicks == 35) {
+                        Object selected = field(screen, "selected");
+                        System.out.println("CLOUDNINE_SMOKE: paired selection=" + selected);
+                        if (!fixturePrepared || !(selected instanceof LibraryEntry entry)
+                                || !entry.label().equals("Moonlit Fixture.zip") || !entry.canStage()) {
+                            throw new IllegalStateException("Refresh did not preserve the selected ZIP name and pair the fixture JAR");
                         }
                     }
                     if (screenTicks == 45) {
+                        Screenshot.grab(client.gameDirectory, "cloudnine-smoke.png", client.getMainRenderTarget(), 1,
+                                result -> System.out.println("CLOUDNINE_SMOKE paired screenshot: " + result.getString()));
+                    }
+                    if (screenTicks == 55) {
                         click(client.getWindow().handle(), screen.stageButtonCenterX() * scale, screen.stageButtonCenterY() * scale);
                         System.out.println("CLOUDNINE_SMOKE: requested stage click at " + screen.stageButtonCenterX() + "," + screen.stageButtonCenterY());
                     }
-                    if (screenTicks == 75) {
+                    if (screenTicks == 85) {
                         System.out.println("CLOUDNINE_SMOKE: status=" + field(screen, "message") + " staging=" + field(screen, "staging"));
                     }
                     if (exitCountdown < 0) {

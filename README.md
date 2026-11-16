@@ -28,7 +28,7 @@ If a selected JAR crashes Fabric before Cloud Nine starts, or if a launcher forc
 ./gradlew build
 ```
 
-The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Right Alt and mouse events through Minecraft's GLFW callbacks, selects a ZIP-named fixture in the UI, relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
+The GitHub Actions workflow runs unit tests, builds the mod, then launches a **real Minecraft client in a production-like Fabric environment** under Xvfb/software OpenGL, using the remapped distributable JAR. After the loading overlay clears, it sends Right Alt and mouse events through Minecraft's GLFW callbacks, selects a ZIP-only fixture, adds its compiled JAR, refreshes while keeping the ZIP name selected, then stages it through the UI and relaunches and checks that Fabric actually initializes it, then launches once more to check one-session cleanup. The screenshot shows the test fixture, which is not distributed in the mod. Logs and a screenshot are uploaded as workflow artifacts.
 
 ## Privacy and storage
 

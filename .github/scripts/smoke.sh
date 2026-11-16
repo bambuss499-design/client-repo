@@ -8,7 +8,7 @@ export ALSOFT_DRIVERS=null
 game=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cloudnine-smoke-XXXXXX")
 export CLOUDNINE_SMOKE_DIR="$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
-cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/clients/Moonlit Fixture.jar"
+cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/smoke/Moonlit Fixture.jar"
 python3 - "$game/cloudnine/clients/Moonlit Fixture.zip" <<'PYCODE'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], 'w') as archive:
