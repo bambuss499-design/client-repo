@@ -9,12 +9,15 @@ game=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cloudnine-smoke-XXXXXX")
 export CLOUDNINE_SMOKE_DIR="$game"
 mkdir -p build/smoke-logs "$game/mods" "$game/cloudnine/clients" "$game/cloudnine/smoke"
 cp 'build/libs/cloudnine-0.3.0.jar' "$game/mods/cloudnine-0.3.0.jar"
-cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/smoke/Moonlit Fixture.jar"
-python3 - "$game/cloudnine/clients/Moonlit Fixture.zip" <<'PYCODE'
+target=${CLOUDNINE_SMOKE_TARGET:-fixture}
+if [[ "$target" == fixture ]]; then
+  cp 'build/smoke/Moonlit Fixture.jar' "$game/cloudnine/smoke/Moonlit Fixture.jar"
+  python3 - "$game/cloudnine/clients/Moonlit Fixture.zip" <<'PYCODE'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], 'w') as archive:
     archive.writestr('README.txt', 'Synthetic source fixture; not a client.')
 PYCODE
+fi
 printf 'version:4671\nguiScale:2\nonboardAccessibility:false\nkey_key.cloudnine.open:key.keyboard.right.alt\n' > "$game/options.txt"
 
 pid=''
@@ -44,7 +47,18 @@ launch() {
   local phase="$1"
   rm -f "$game/cloudnine/smoke/title-ready" "$game/cloudnine/smoke/FAILED"
   echo "Launching Minecraft: $phase"
-  CLOUDNINE_SMOKE_PHASE="$phase" timeout 400s ./gradlew --no-daemon productionSmoke >"build/smoke-logs/$phase.log" 2>&1 &
+  if [[ "$target" == dgclient && "$phase" == loaded && -n "${CLOUDNINE_SMOKE_DOCKER_IMAGE:-}" ]]; then
+    # Run third-party code with no network or repository credentials. Keep the
+    # container alive briefly after Minecraft exits so the return helper can run.
+    timeout 400s docker run --rm --network none --user "$(id -u):$(id -g)" \
+      -v "$PWD:$PWD" -w "$PWD" -v "$HOME/.gradle:$HOME/.gradle" -v "$game:$game" \
+      -e HOME="$HOME" -e GRADLE_USER_HOME="$HOME/.gradle" -e CLOUDNINE_SMOKE_DIR="$game" \
+      -e CLOUDNINE_SMOKE_PHASE="$phase" -e CLOUDNINE_SMOKE_TARGET="$target" \
+      -e LIBGL_ALWAYS_SOFTWARE=1 -e ALSOFT_DRIVERS=null "$CLOUDNINE_SMOKE_DOCKER_IMAGE" \
+      bash .github/scripts/isolated-loaded.sh >"build/smoke-logs/$phase.log" 2>&1 &
+  else
+    CLOUDNINE_SMOKE_PHASE="$phase" CLOUDNINE_SMOKE_TARGET="$target" timeout 400s ./gradlew --no-daemon productionSmoke >"build/smoke-logs/$phase.log" 2>&1 &
+  fi
   pid=$!
   wait_for_file "$game/cloudnine/smoke/title-ready" 120
 }
@@ -59,7 +73,7 @@ finish() {
 }
 
 launch stage
-wait_for_file "$game/cloudnine/smoke/stage" 90
+wait_for_file "$game/cloudnine/smoke/stage" 180
 finish stage
 test -f "$game/screenshots/cloudnine-smoke.png"
 cp "$game/screenshots/cloudnine-smoke.png" build/cloudnine-screen.png
@@ -92,4 +106,4 @@ fi
 
 launch empty
 finish empty
-echo 'PASS: Left Alt opened the GUI; fixture loaded without Cloud Nine, which was then restored.'
+echo "PASS: Left Alt selected $target; it loaded without Cloud Nine, which was then restored."

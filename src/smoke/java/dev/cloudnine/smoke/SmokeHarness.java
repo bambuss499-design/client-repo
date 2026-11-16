@@ -20,6 +20,7 @@ import java.nio.file.Path;
 /** Test-only mod: drives Minecraft's registered GLFW callbacks, not selector methods. */
 public final class SmokeHarness implements ClientModInitializer {
     private final String phase = System.getenv().getOrDefault("CLOUDNINE_SMOKE_PHASE", "");
+    private final boolean dgclient = System.getenv().getOrDefault("CLOUDNINE_SMOKE_TARGET", "fixture").equals("dgclient");
     private int exitCountdown = -1;
     private int titleTicks;
     private int screenTicks;
@@ -64,8 +65,9 @@ public final class SmokeHarness implements ClientModInitializer {
                         System.out.println("CLOUDNINE_SMOKE: sent Left Alt through Minecraft's GLFW callback");
                     }
                     if (exitCountdown < 0 && phase.equals("loaded")) {
-                        if (!FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
-                            throw new IllegalStateException("Selected fixture did not initialize");
+                        if (dgclient ? !FabricLoader.getInstance().isModLoaded("aetherclient")
+                                : !FabricLoader.getInstance().isModLoaded("cloudninefixture") || !Files.exists(game.resolve("cloudnine/fixture-loaded.txt"))) {
+                            throw new IllegalStateException("Selected " + (dgclient ? "Dgclient" : "fixture") + " did not initialize");
                         }
                         if (FabricLoader.getInstance().isModLoaded("cloudnine") || !FabricLoader.getInstance().isModLoaded("cloudnine_return")) {
                             throw new IllegalStateException("Selector must be unloaded and return helper present in selected session");
@@ -74,7 +76,8 @@ public final class SmokeHarness implements ClientModInitializer {
                         exitCountdown = 40;
                     }
                     if (exitCountdown < 0 && phase.equals("empty")) {
-                        if (FabricLoader.getInstance().isModLoaded("cloudninefixture") || FabricLoader.getInstance().isModLoaded("cloudnine_return")
+                        if (FabricLoader.getInstance().isModLoaded("cloudninefixture") || FabricLoader.getInstance().isModLoaded("aetherclient")
+                                || FabricLoader.getInstance().isModLoaded("cloudnine_return")
                                 || !FabricLoader.getInstance().isModLoaded("cloudnine")) {
                             throw new IllegalStateException("Selector was not restored without the fixture and return helper");
                         }
@@ -93,7 +96,7 @@ public final class SmokeHarness implements ClientModInitializer {
                         var expected = java.util.List.of("67Client.zip", "Anubis.zip", "CorzClient.zip", "Dgclient.zip", "Gooba.zip", "Krispy.zip", "Waterv7.zip");
                         if (!labels.containsAll(expected)) throw new IllegalStateException("Drive catalog missing entries: " + labels);
                         // Filter for the synthetic fixture; the row and buttons are still driven by GLFW.
-                        ((EditBox) field(screen, "search")).setValue("Moonlit");
+                        ((EditBox) field(screen, "search")).setValue(dgclient ? "Dgclient" : "Moonlit");
                     }
                     if (screenTicks == 10) {
                         click(client.getWindow().handle(), coordinate(screen, "firstRowCenterX") * scale, coordinate(screen, "firstRowCenterY") * scale);
@@ -102,21 +105,30 @@ public final class SmokeHarness implements ClientModInitializer {
                     if (screenTicks == 20) {
                         Object selected = field(screen, "selected");
                         System.out.println("CLOUDNINE_SMOKE: source selection=" + selected);
-                        if (selected == null || !call(selected, "label").equals("Moonlit Fixture.zip") || (boolean) call(selected, "canStage")) {
-                            throw new IllegalStateException("A source ZIP alone must be selected but not executable");
+                        String expected = dgclient ? "Dgclient.zip" : "Moonlit Fixture.zip";
+                        if (selected == null || !call(selected, "label").equals(expected) || (boolean) call(selected, "canStage")) {
+                            throw new IllegalStateException("The source-only catalog entry was not selected");
                         }
-                        Files.copy(game.resolve("cloudnine/smoke/Moonlit Fixture.jar"),
-                                game.resolve("cloudnine/clients/Moonlit Fixture.jar"));
-                        click(client.getWindow().handle(), coordinate(screen, "refreshButtonCenterX") * scale, coordinate(screen, "refreshButtonCenterY") * scale);
-                        System.out.println("CLOUDNINE_SMOKE: added compiled fixture and requested refresh");
+                        if (!dgclient) {
+                            Files.copy(game.resolve("cloudnine/smoke/Moonlit Fixture.jar"),
+                                    game.resolve("cloudnine/clients/Moonlit Fixture.jar"));
+                            click(client.getWindow().handle(), coordinate(screen, "refreshButtonCenterX") * scale, coordinate(screen, "refreshButtonCenterY") * scale);
+                            System.out.println("CLOUDNINE_SMOKE: added compiled fixture and requested refresh");
+                        }
                         fixturePrepared = true;
                     }
                     if (screenTicks == 35) {
                         Object selected = field(screen, "selected");
                         System.out.println("CLOUDNINE_SMOKE: paired selection=" + selected);
-                        if (!fixturePrepared || selected == null
-                                || !call(selected, "label").equals("Moonlit Fixture.zip") || !(boolean) call(selected, "canStage")) {
-                            throw new IllegalStateException("Refresh did not preserve the selected ZIP name and pair the fixture JAR");
+                        String expected = dgclient ? "Dgclient.zip" : "Moonlit Fixture.zip";
+                        if (!fixturePrepared || selected == null || !call(selected, "label").equals(expected)
+                                || (!dgclient && !(boolean) call(selected, "canStage"))) {
+                            throw new IllegalStateException("Selected ZIP name or fixture pairing was lost");
+                        }
+                        if (dgclient) {
+                            Object library = field(screen, "library");
+                            boolean canDownload = (boolean) library.getClass().getMethod("canDownload", selected.getClass()).invoke(library, selected);
+                            if (!canDownload) throw new IllegalStateException("Dgclient release is not offered for download");
                         }
                     }
                     if (screenTicks == 45) {
@@ -129,6 +141,9 @@ public final class SmokeHarness implements ClientModInitializer {
                     }
                     if (screenTicks == 85) {
                         System.out.println("CLOUDNINE_SMOKE: status=" + field(screen, "message") + " staging=" + field(screen, "staging"));
+                    }
+                    if (screenTicks > 200 && Boolean.TRUE.equals(field(screen, "error")) && !Boolean.TRUE.equals(field(screen, "staging"))) {
+                        throw new IllegalStateException("Selection failed: " + field(screen, "message"));
                     }
                     if (exitCountdown < 0 && Files.exists(game.resolve("cloudnine/handoff/next.properties"))) {
                         Files.writeString(output.resolve("stage"), "Left Alt and UI click prepared the isolated fixture\n");
